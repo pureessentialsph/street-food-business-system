@@ -27,6 +27,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sfs_test
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/sfs_test
       AUTH_SECRET: ci-secret-not-used-in-production
+      SEED_TENANT_FIXTURE: "true"
 
     steps:
       - uses: actions/checkout@v4

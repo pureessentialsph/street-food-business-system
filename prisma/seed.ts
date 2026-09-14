@@ -126,8 +126,19 @@ async function main() {
     ],
   });
 
-  // Tenant-isolation fixture. Deliberately uses the SAME owner email as the primary
-  // company, which is why User.email is unique per company and not globally.
+  // Tenant-isolation fixture. Deliberately reuses the primary owner's email, which is
+  // why User.email is unique per company and not globally.
+  //
+  // NEVER seeded in production: a live deployment must not carry a second company with a
+  // known password. Set SEED_TENANT_FIXTURE=true (CI and local dev do) to include it.
+  const wantFixture =
+    process.env.SEED_TENANT_FIXTURE === "true" || process.env.NODE_ENV !== "production";
+
+  if (!wantFixture) {
+    console.log(`Seeded ${primary.code} (${primary.id}). Tenant fixture skipped (production).`);
+    return;
+  }
+
   const secondary = await seedCompany({
     code: "TENANT2",
     name: "Second Operator (isolation fixture)",
