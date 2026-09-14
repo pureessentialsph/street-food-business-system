@@ -1,0 +1,18 @@
+{
+  "extends": "next/core-web-vitals",
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@prisma/client",
+            "importNames": ["PrismaClient"],
+            "message": "Never construct PrismaClient directly. Use scopedDb()/rawDb from @/lib/db so companyId is always injected (spec §3 rule 8)."
+          }
+        ]
+      }
+    ]
+  },
+  "ignorePatterns": ["src/lib/db.ts", "prisma/seed.ts", "scripts/**"]
+}

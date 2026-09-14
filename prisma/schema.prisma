@@ -1,0 +1,134 @@
+// Street Food Business System — Phase 0 schema.
+//
+// Rules that apply to EVERY model added in later phases (spec §3 rule 8, §15.1):
+//   * non-null `companyId`, indexed, leading every composite index
+//   * every unique constraint composite with companyId
+//   * all money and quantity columns are Decimal(14, 4)
+//   * reads and writes go through lib/db.ts, never a bare PrismaClient
+//
+// Phase 1 adds: Area, Location, Cart, Employee, Supplier, Ingredient, Product,
+// ProductCategory, PriceList, SetDefinition. Do not add them here early.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  AREA_MANAGER
+  SUPERVISOR
+  COMMISSARY
+  HR
+  VENDOR
+}
+
+enum BranchType {
+  BRANCH
+  COMMISSARY
+  WAREHOUSE
+}
+
+/// The tenant root. One row in the MVP; the column exists on every other table
+/// so selling the system to a second operator is a config change, not a rewrite.
+model Company {
+  id                     String   @id @default(cuid())
+  code                   String   @unique
+  name                   String
+  currency               String   @default("PHP")
+  timezone               String   @default("Asia/Manila")
+  businessDayCutoffHour  Int      @default(4)
+  defaultWastagePct      Decimal  @default(0) @db.Decimal(14, 4)
+  cashVarianceThreshold  Decimal  @default(100) @db.Decimal(14, 4)
+  settings               Json     @default("{}")
+  isActive               Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  branches   Branch[]
+  users      User[]
+  auditLogs  AuditLog[]
+  scopes     UserBranchScope[]
+}
+
+model Branch {
+  id        String     @id @default(cuid())
+  companyId String
+  code      String
+  name      String
+  type      BranchType @default(BRANCH)
+  address   String?
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  createdById String?
+
+  company Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  scopes  UserBranchScope[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  companyId    String
+  email        String
+  passwordHash String
+  name         String
+  role         Role
+  employeeId   String? // FK added in Phase 1 with the Employee model
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdById  String?
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  scopes    UserBranchScope[]
+  auditLogs AuditLog[]
+
+  // Email is unique per company, not globally: two operators may both have
+  // an owner@ address once the system is sold on.
+  @@unique([companyId, email])
+  @@index([companyId, role])
+  @@index([email])
+}
+
+model UserBranchScope {
+  id        String @id @default(cuid())
+  companyId String
+  userId    String
+  branchId  String
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@index([companyId, userId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  companyId String
+  userId    String?
+  action    String
+  entity    String
+  entityId  String
+  before    Json?
+  after     Json?
+  at        DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, entity, entityId])
+  @@index([companyId, at])
+}

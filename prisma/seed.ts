@@ -1,0 +1,155 @@
+/**
+ * Idempotent seed (spec §3 rule 6): running it twice leaves the same state.
+ *
+ * Seeds TWO companies on purpose. The second one exists so the tenant-isolation test
+ * has something real to fail against — it is the proof that selling this system to a
+ * second cart operator will not leak the first one's data (spec §15.1).
+ */
+import { PrismaClient, type Role } from "@prisma/client";
+import bcrypt from "bcryptjs";
+
+const db = new PrismaClient();
+
+const OWNER_EMAIL = process.env.SEED_OWNER_EMAIL ?? "owner@streetfood.local";
+const OWNER_PASSWORD = process.env.SEED_OWNER_PASSWORD ?? "ChangeMe123!";
+
+type SeedUser = {
+  email: string;
+  name: string;
+  role: Role;
+  password: string;
+  branchCodes: string[];
+};
+
+async function seedCompany(input: {
+  code: string;
+  name: string;
+  branches: { code: string; name: string; type: "BRANCH" | "COMMISSARY" | "WAREHOUSE" }[];
+  users: SeedUser[];
+}) {
+  const company = await db.company.upsert({
+    where: { code: input.code },
+    update: { name: input.name },
+    create: { code: input.code, name: input.name },
+  });
+
+  for (const branch of input.branches) {
+    await db.branch.upsert({
+      where: { companyId_code: { companyId: company.id, code: branch.code } },
+      update: { name: branch.name, type: branch.type },
+      create: { companyId: company.id, code: branch.code, name: branch.name, type: branch.type },
+    });
+  }
+
+  for (const user of input.users) {
+    const passwordHash = await bcrypt.hash(user.password, 10);
+    const row = await db.user.upsert({
+      where: { companyId_email: { companyId: company.id, email: user.email } },
+      update: { name: user.name, role: user.role, passwordHash, isActive: true },
+      create: {
+        companyId: company.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        passwordHash,
+      },
+    });
+
+    for (const code of user.branchCodes) {
+      const branch = await db.branch.findUnique({
+        where: { companyId_code: { companyId: company.id, code } },
+      });
+      if (!branch) continue;
+      await db.userBranchScope.upsert({
+        where: { userId_branchId: { userId: row.id, branchId: branch.id } },
+        update: {},
+        create: { companyId: company.id, userId: row.id, branchId: branch.id },
+      });
+    }
+  }
+
+  return company;
+}
+
+async function main() {
+  const primary = await seedCompany({
+    code: "SFS",
+    name: "Street Food Business",
+    branches: [
+      { code: "CMY-01", name: "Main Commissary", type: "COMMISSARY" },
+      { code: "BR-01", name: "Branch 1 — University Belt", type: "BRANCH" },
+      { code: "BR-02", name: "Branch 2 — Industrial Park", type: "BRANCH" },
+    ],
+    users: [
+      {
+        email: OWNER_EMAIL,
+        name: "Business Owner",
+        role: "OWNER",
+        password: OWNER_PASSWORD,
+        branchCodes: [],
+      },
+      {
+        email: "supervisor1@streetfood.local",
+        name: "Branch 1 Supervisor",
+        role: "SUPERVISOR",
+        password: "ChangeMe123!",
+        branchCodes: ["BR-01"],
+      },
+      {
+        email: "supervisor2@streetfood.local",
+        name: "Branch 2 Supervisor",
+        role: "SUPERVISOR",
+        password: "ChangeMe123!",
+        branchCodes: ["BR-02"],
+      },
+      {
+        email: "areamanager@streetfood.local",
+        name: "Area Manager",
+        role: "AREA_MANAGER",
+        password: "ChangeMe123!",
+        branchCodes: ["BR-01", "BR-02"],
+      },
+      {
+        email: "commissary@streetfood.local",
+        name: "Commissary Lead",
+        role: "COMMISSARY",
+        password: "ChangeMe123!",
+        branchCodes: ["CMY-01"],
+      },
+      {
+        email: "hr@streetfood.local",
+        name: "HR Officer",
+        role: "HR",
+        password: "ChangeMe123!",
+        branchCodes: [],
+      },
+    ],
+  });
+
+  // Tenant-isolation fixture. Deliberately uses the SAME owner email as the primary
+  // company, which is why User.email is unique per company and not globally.
+  const secondary = await seedCompany({
+    code: "TENANT2",
+    name: "Second Operator (isolation fixture)",
+    branches: [{ code: "BR-01", name: "Other Operator Branch 1", type: "BRANCH" }],
+    users: [
+      {
+        email: OWNER_EMAIL,
+        name: "Other Operator Owner",
+        role: "OWNER",
+        password: "OtherOperator123!",
+        branchCodes: ["BR-01"],
+      },
+    ],
+  });
+
+  console.log(`Seeded ${primary.code} (${primary.id}) and ${secondary.code} (${secondary.id}).`);
+  console.log(`Sign in as ${OWNER_EMAIL} with company code SFS.`);
+}
+
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  })
+  .finally(() => void db.$disconnect());
