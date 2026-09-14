@@ -75,7 +75,12 @@ describe.skipIf(!hasDb)("tenant isolation (live database)", () => {
   });
 
   it("keeps the same email usable by two operators", async () => {
-    const duplicates = await rawDb.user.findMany({ where: { email: "owner@streetfood.local" } });
+    const primaryOwner = await rawDb.user.findFirst({
+      where: { companyId: primaryId, role: "OWNER" },
+    });
+    expect(primaryOwner).not.toBeNull();
+
+    const duplicates = await rawDb.user.findMany({ where: { email: primaryOwner!.email } });
     expect(duplicates.length).toBe(2);
     expect(new Set(duplicates.map((u) => u.companyId)).size).toBe(2);
   });

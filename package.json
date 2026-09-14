@@ -19,7 +19,9 @@
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
     "db:local": "tsx scripts/local-db.ts",
-    "db:local:stop": "tsx scripts/local-db.ts stop"
+    "db:local:stop": "tsx scripts/local-db.ts stop",
+    "owner:create": "tsx scripts/create-owner.ts",
+    "check:connection": "tsx scripts/check-connection.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -10,8 +10,16 @@ import bcrypt from "bcryptjs";
 
 const db = new PrismaClient();
 
-const OWNER_EMAIL = process.env.SEED_OWNER_EMAIL ?? "owner@streetfood.local";
-const OWNER_PASSWORD = process.env.SEED_OWNER_PASSWORD ?? "ChangeMe123!";
+/**
+ * Fixtures — demo staff logins and the second company — carry known passwords. They are
+ * indispensable in development and a gift to an attacker in production, so they ship
+ * only when explicitly asked for.
+ */
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const WANT_FIXTURES = process.env.SEED_FIXTURES === "true" || !IS_PRODUCTION;
+
+const OWNER_EMAIL = process.env.SEED_OWNER_EMAIL;
+const OWNER_PASSWORD = process.env.SEED_OWNER_PASSWORD;
 
 type SeedUser = {
   email: string;
@@ -72,22 +80,26 @@ async function seedCompany(input: {
 }
 
 async function main() {
-  const primary = await seedCompany({
-    code: "SFS",
-    name: "Street Food Business",
-    branches: [
-      { code: "CMY-01", name: "Main Commissary", type: "COMMISSARY" },
-      { code: "BR-01", name: "Branch 1 — University Belt", type: "BRANCH" },
-      { code: "BR-02", name: "Branch 2 — Industrial Park", type: "BRANCH" },
-    ],
-    users: [
-      {
-        email: OWNER_EMAIL,
-        name: "Business Owner",
-        role: "OWNER",
-        password: OWNER_PASSWORD,
-        branchCodes: [],
-      },
+  // Never create a login from environment variables in production. A stray .env on a
+  // developer's laptop is enough to put a known password on the live database — which is
+  // exactly what happened once. Production owners come from `pnpm owner:create`, which
+  // prompts for the password and writes it nowhere.
+  const owner: SeedUser[] =
+    !IS_PRODUCTION && OWNER_EMAIL && OWNER_PASSWORD
+      ? [
+          {
+            email: OWNER_EMAIL,
+            name: "Business Owner",
+            role: "OWNER",
+            password: OWNER_PASSWORD,
+            branchCodes: [],
+          },
+        ]
+      : [];
+
+  const demoStaff: SeedUser[] = !WANT_FIXTURES
+    ? []
+    : [
       {
         email: "supervisor1@streetfood.local",
         name: "Branch 1 Supervisor",
@@ -123,21 +135,35 @@ async function main() {
         password: "ChangeMe123!",
         branchCodes: [],
       },
+    ];
+
+  const primary = await seedCompany({
+    code: "SFS",
+    name: "Street Food Business",
+    branches: [
+      { code: "CMY-01", name: "Main Commissary", type: "COMMISSARY" },
+      { code: "BR-01", name: "Branch 1 — University Belt", type: "BRANCH" },
+      { code: "BR-02", name: "Branch 2 — Industrial Park", type: "BRANCH" },
     ],
+    users: [...owner, ...demoStaff],
   });
 
   // Tenant-isolation fixture. Deliberately reuses the primary owner's email, which is
   // why User.email is unique per company and not globally.
   //
   // NEVER seeded in production: a live deployment must not carry a second company with a
-  // known password. Set SEED_TENANT_FIXTURE=true (CI and local dev do) to include it.
-  const wantFixture =
-    process.env.SEED_TENANT_FIXTURE === "true" || process.env.NODE_ENV !== "production";
-
-  if (!wantFixture) {
-    console.log(`Seeded ${primary.code} (${primary.id}). Tenant fixture skipped (production).`);
+  // known password. Set SEED_FIXTURES=true (CI and local dev do) to include it.
+  if (!WANT_FIXTURES) {
+    const ownerNote = owner.length
+      ? `Owner ${OWNER_EMAIL} created.`
+      : "No owner created — run `pnpm owner:create` to add one without a password in your shell history.";
+    console.log(`Seeded ${primary.code} (${primary.id}). Fixtures skipped. ${ownerNote}`);
     return;
   }
+
+  // Mirrors the primary owner's email on purpose: proving one email can belong to two
+  // operators is the point of the fixture.
+  const sharedEmail = OWNER_EMAIL ?? "owner@streetfood.local";
 
   const secondary = await seedCompany({
     code: "TENANT2",
@@ -145,7 +171,7 @@ async function main() {
     branches: [{ code: "BR-01", name: "Other Operator Branch 1", type: "BRANCH" }],
     users: [
       {
-        email: OWNER_EMAIL,
+        email: sharedEmail,
         name: "Other Operator Owner",
         role: "OWNER",
         password: "OtherOperator123!",
@@ -155,7 +181,7 @@ async function main() {
   });
 
   console.log(`Seeded ${primary.code} (${primary.id}) and ${secondary.code} (${secondary.id}).`);
-  console.log(`Sign in as ${OWNER_EMAIL} with company code SFS.`);
+  console.log(`Sign in as ${OWNER_EMAIL ?? "supervisor1@streetfood.local"} with company code SFS.`);
 }
 
 main()
