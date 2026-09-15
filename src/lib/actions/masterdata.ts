@@ -7,6 +7,7 @@ import {
 } from "@/lib/validation/masterdata";
 import { assertScope } from "@/lib/rbac";
 import type { ScopedDb } from "@/lib/db";
+import { describeChanges, recomputeForIngredient } from "@/lib/costing-service";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 /**
@@ -179,8 +180,21 @@ export async function saveIngredient(id: string | null, formData: FormData): Pro
         });
       }
       await audit(ctx, "UPDATE", "Ingredient", id, before, after);
+
+      // A price change ripples: every product whose recipe uses this ingredient gets a
+      // fresh cost snapshot, and the operator is told what it did to their margins
+      // rather than finding out at month end (spec §6).
+      let costNote = "";
+      if (!before.currentCostPerBaseUnit.equals(after.currentCostPerBaseUnit)) {
+        const changes = await recomputeForIngredient(
+          ctx.db, id, ctx.user.id, `${after.name} cost changed`,
+        );
+        if (changes.length > 0) costNote = ` ${describeChanges(changes)}`;
+        refresh("/costing");
+      }
+
       refresh("/ingredients");
-      return { ok: true, id, message: `${after.name} saved.` };
+      return { ok: true, id, message: `${after.name} saved.${costNote}` };
     }
 
     const created = await ctx.db.ingredient.create({

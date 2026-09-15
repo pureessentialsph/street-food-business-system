@@ -8,6 +8,9 @@
 import { PrismaClient, type Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { seedMasterData } from "./seed-masterdata";
+import { seedRecipes } from "./seed-recipes";
+import { recomputeAll } from "../src/lib/costing-service";
+import { scopedDb } from "../src/lib/db";
 
 const db = new PrismaClient();
 
@@ -160,6 +163,11 @@ async function main() {
       `${counts.ingredients} ingredients, ${counts.products} products, ` +
       `${counts.carts} carts, ${counts.employees} employees.`,
   );
+
+  // Recipes, then one cost snapshot per product so margins are visible immediately.
+  const recipeCount = await seedRecipes(db, primary.id);
+  const costChanges = await recomputeAll(scopedDb(primary.id), "SEED", null);
+  console.log(`Costing: ${recipeCount} recipes, ${costChanges.length} cost versions written.`);
 
   // NEVER seeded in production: a live deployment must not carry a second company with a
   // known password. Set SEED_FIXTURES=true (CI and local dev do) to include it.

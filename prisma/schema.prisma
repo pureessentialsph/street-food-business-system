@@ -74,6 +74,9 @@ model Company {
   setDefinitions      SetDefinition[]
   setComponents       SetComponent[]
   positions           Position[]
+  recipes             Recipe[]
+  recipeLines         RecipeLine[]
+  productCostVersions ProductCostVersion[]
 }
 
 model Branch {
@@ -430,6 +433,7 @@ model Ingredient {
   company     Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   suppliers   SupplierIngredient[]
   costHistory IngredientCostHistory[]
+  recipeLines RecipeLine[]
 
   @@unique([companyId, sku])
   @@index([companyId, category, isActive])
@@ -506,10 +510,12 @@ model Product {
   updatedAt      DateTime    @updatedAt
   createdById    String?
 
-  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  category       ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category       ProductCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   priceListItems PriceListItem[]
   setComponents  SetComponent[]
+  recipes        Recipe[]
+  costVersions   ProductCostVersion[]
 
   @@unique([companyId, sku])
   @@index([companyId, categoryId, isActive])
@@ -614,4 +620,103 @@ model Position {
 
   @@unique([companyId, name])
   @@index([companyId, isActive])
+}
+
+// ===========================================================================
+// PHASE 2 — COSTING
+//
+// allocationBasis is what makes oil, sauce and packaging cost correctly (spec §5.3):
+//   PER_BATCH — flour, eggs, seasoning: divided by batchYieldPieces
+//   PER_PIECE — cooking oil: attributed to every piece fried
+//   PER_STICK — the stick, sauce and cup: charged once per stick sold
+// ===========================================================================
+
+enum AllocationBasis {
+  PER_BATCH
+  PER_PIECE
+  PER_STICK
+}
+
+enum ComponentType {
+  RAW
+  PACKAGING
+  CONDIMENT
+  OIL
+  CONSUMABLE
+}
+
+enum CostTrigger {
+  RECIPE_CREATED
+  RECIPE_EDITED
+  INGREDIENT_COST_CHANGE
+  MANUAL_RECALC
+  SEED
+}
+
+model Recipe {
+  id               String   @id @default(cuid())
+  companyId        String
+  productId        String
+  version          Int      @default(1)
+  /// Pieces one batch yields. Divides every PER_BATCH line.
+  batchYieldPieces Decimal  @db.Decimal(14, 4)
+  isActive         Boolean  @default(true)
+  effectiveFrom    DateTime @db.Date
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdById      String?
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  lines   RecipeLine[]
+
+  @@unique([productId, version])
+  @@index([companyId, productId, isActive])
+}
+
+model RecipeLine {
+  id              String          @id @default(cuid())
+  companyId       String
+  recipeId        String
+  ingredientId    String
+  qtyInBaseUnit   Decimal         @db.Decimal(14, 4)
+  /// Trim, spillage and breakage on this line, as a fraction: 0.05 = 5%.
+  wastagePct      Decimal         @default(0) @db.Decimal(14, 4)
+  allocationBasis AllocationBasis @default(PER_BATCH)
+  componentType   ComponentType   @default(RAW)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  createdById     String?
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([recipeId, ingredientId, allocationBasis])
+  @@index([companyId, ingredientId])
+}
+
+/// An immutable cost snapshot. Never edited — a change writes a new row, so last
+/// week's reported profit cannot move when an ingredient price changes today
+/// (spec §3 rule 4). Shift lines resolve cost by effectiveFrom <= businessDate.
+model ProductCostVersion {
+  id            String      @id @default(cuid())
+  companyId     String
+  productId     String
+  recipeVersion Int
+  effectiveFrom DateTime
+  costPerPiece  Decimal     @db.Decimal(14, 4)
+  costPerStick  Decimal     @db.Decimal(14, 4)
+  /// Where every centavo went: raw, packaging, condiment, oil, consumable, wastage.
+  breakdown     Json
+  triggeredBy   CostTrigger @default(MANUAL_RECALC)
+  note          String?
+  createdAt     DateTime    @default(now())
+  createdById   String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, productId, effectiveFrom])
 }
