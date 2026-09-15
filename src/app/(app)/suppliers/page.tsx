@@ -2,9 +2,9 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can } from "@/lib/rbac";
-import { saveSupplier, setActive } from "@/lib/actions/masterdata";
+import { deleteRecord, saveSupplier, setActive } from "@/lib/actions/masterdata";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
-import { ArchiveButton, EntityForm } from "@/components/entity-form";
+import { ArchiveButton, DeleteButton, EntityForm } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, Checkbox, Field, TextArea, TextInput } from "@/components/ui/field";
@@ -18,6 +18,7 @@ export default async function SuppliersPage({
   const user = await requireUser();
   const db = scopedDb(user.companyId);
   const writable = can(user, "masterdata.write");
+  const deletable = can(user, "masterdata.delete");
   const q = params.q?.trim() ?? "";
 
   const suppliers = await db.supplier.findMany({
@@ -87,7 +88,18 @@ export default async function SuppliersPage({
           { header: "Status", cell: (s) => (s.isActive ? <Badge tone="success">active</Badge> : <Badge tone="danger">archived</Badge>) },
           {
             header: "",
-            cell: (s) => (writable ? <ArchiveButton isActive={s.isActive} label={s.name} action={setActive.bind(null, "supplier", s.id, !s.isActive)} /> : null),
+            cell: (s) => (writable ?
+                <div className="flex items-center justify-end gap-2">
+                  <ArchiveButton isActive={s.isActive} label={s.name} action={setActive.bind(null, "supplier", s.id, !s.isActive)} />
+                  {deletable ? (
+                    <DeleteButton
+                      kind="supplier"
+                      label={s.name}
+                      action={deleteRecord.bind(null, "supplier", s.id)}
+                    />
+                  ) : null}
+                </div>
+                 : null),
           },
         ]}
       />

@@ -135,3 +135,46 @@ export function RemoveButton({
   );
 }
 
+/**
+ * Permanent delete. Deliberately noisier than Archive: it names the record, says the
+ * word "permanently", and surfaces the server's refusal when the record has dependents.
+ */
+export function DeleteButton({
+  action, label, kind,
+}: {
+  action: () => Promise<ActionResult>;
+  label: string;
+  kind: string;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="danger"
+        disabled={pending}
+        onClick={() => {
+          setError(null);
+          if (!confirm(`Permanently delete ${kind} ${label}? This cannot be undone. If it has any history, archive it instead.`)) return;
+          startTransition(async () => {
+            const result = await action();
+            if (!result.ok) setError(result.error);
+            else router.refresh();
+          });
+        }}
+      >
+        {pending ? "…" : "Delete"}
+      </Button>
+      {error ? (
+        <p role="alert" className="mt-1 max-w-[22rem] text-xs font-medium text-red-700">
+          {error}
+        </p>
+      ) : null}
+    </>
+  );
+}
+

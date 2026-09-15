@@ -2,10 +2,10 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can } from "@/lib/rbac";
-import { saveIngredient, setActive } from "@/lib/actions/masterdata";
+import { deleteRecord, saveIngredient, setActive } from "@/lib/actions/masterdata";
 import { formatPHP } from "@/lib/money";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
-import { ArchiveButton, EntityForm } from "@/components/entity-form";
+import { ArchiveButton, DeleteButton, EntityForm } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, Checkbox, Field, NumberInput, Select, TextInput } from "@/components/ui/field";
@@ -22,6 +22,7 @@ export default async function IngredientsPage({
   const user = await requireUser();
   const db = scopedDb(user.companyId);
   const writable = can(user, "masterdata.write");
+  const deletable = can(user, "masterdata.delete");
   const q = params.q?.trim() ?? "";
 
   const ingredients = await db.ingredient.findMany({
@@ -123,7 +124,18 @@ export default async function IngredientsPage({
           { header: "Status", cell: (i) => (i.isActive ? <Badge tone="success">active</Badge> : <Badge tone="danger">archived</Badge>) },
           {
             header: "",
-            cell: (i) => (writable ? <ArchiveButton isActive={i.isActive} label={i.name} action={setActive.bind(null, "ingredient", i.id, !i.isActive)} /> : null),
+            cell: (i) => (writable ?
+                <div className="flex items-center justify-end gap-2">
+                  <ArchiveButton isActive={i.isActive} label={i.name} action={setActive.bind(null, "ingredient", i.id, !i.isActive)} />
+                  {deletable ? (
+                    <DeleteButton
+                      kind="ingredient"
+                      label={i.name}
+                      action={deleteRecord.bind(null, "ingredient", i.id)}
+                    />
+                  ) : null}
+                </div>
+                 : null),
           },
         ]}
       />

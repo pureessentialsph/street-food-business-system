@@ -73,6 +73,7 @@ model Company {
   priceListItems      PriceListItem[]
   setDefinitions      SetDefinition[]
   setComponents       SetComponent[]
+  positions           Position[]
 }
 
 model Branch {
@@ -593,4 +594,24 @@ model SetComponent {
 
   @@unique([setDefinitionId, productId])
   @@index([companyId, productId])
+}
+
+/// Job titles offered in the employee form. A title typed once is saved here and
+/// offered from then on, so the list grows with the business instead of being
+/// hardcoded. Employee.position stays free text — renaming a title here must never
+/// silently rewrite someone's employment record.
+model Position {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
 }

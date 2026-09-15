@@ -43,20 +43,70 @@ export async function seedMasterData(db: Db, companyId: string) {
     locationIds.set(loc.name, row.id);
   }
 
-  // ------------------------------------------------------- compensation scheme
-  const scheme = await db.compensationScheme.upsert({
-    where: { companyId_name: { companyId, name: "Vendor — daily rate plus set incentive" } },
-    update: {},
-    create: {
-      ...co,
-      name: "Vendor — daily rate plus set incentive",
-      baseDailyRate: "500", // TODO_OWNER: confirm the real daily rate
-      deductShortage: true,
-      maxShortageDeduction: null, // uncapped, per the owner's decision
+  // ---------------------------------------------------------------- positions
+  // Seeded suggestions only. A title typed into the employee form joins this list.
+  const positions = [
+    { name: "Vendor", sortOrder: 1 },
+    { name: "Branch Supervisor", sortOrder: 2 },
+    { name: "Area Manager", sortOrder: 3 },
+    { name: "Commissary Staff", sortOrder: 4 },
+    { name: "Commissary Lead", sortOrder: 5 },
+    { name: "Motor Cart Driver", sortOrder: 6 },
+    { name: "Kitchen Helper", sortOrder: 7 },
+    { name: "Admin Staff", sortOrder: 8 },
+  ];
+  for (const position of positions) {
+    await db.position.upsert({
+      where: { companyId_name: { companyId, name: position.name } },
+      update: { sortOrder: position.sortOrder },
+      create: { ...co, ...position },
+    });
+  }
+
+  // ------------------------------------------------------ compensation schemes
+  // An earlier seed used a longer name for the same scheme; rename in place so the
+  // employees already pointing at it keep their link.
+  const legacy = await db.compensationScheme.findFirst({
+    where: { companyId, name: "Vendor — daily rate plus set incentive" },
+  });
+  if (legacy) {
+    await db.compensationScheme.update({
+      where: { id: legacy.id },
+      data: { name: "Daily Rate + Set Incentive" },
+    });
+  }
+
+  const schemes = [
+    {
+      name: "Daily Rate",
+      description:
+        "Flat daily pay for a closed shift. No set incentive — used for supervisors, commissary and drivers.",
+    },
+    {
+      name: "Daily Rate + Set Incentive",
       description:
         "₱500 base per closed shift, plus per-component credit from the standard set. Cash shortages deducted in full once the vendor acknowledges the count.",
     },
-  });
+  ];
+
+  const schemeIds = new Map<string, string>();
+  for (const s of schemes) {
+    const row = await db.compensationScheme.upsert({
+      where: { companyId_name: { companyId, name: s.name } },
+      update: { description: s.description },
+      create: {
+        ...co,
+        name: s.name,
+        baseDailyRate: "500", // TODO_OWNER: confirm the real daily rate
+        deductShortage: s.name !== "Daily Rate",
+        maxShortageDeduction: null, // uncapped, per the owner's decision
+        description: s.description,
+      },
+    });
+    schemeIds.set(s.name, row.id);
+  }
+  const scheme = { id: schemeIds.get("Daily Rate + Set Incentive")! };
+  const flatScheme = { id: schemeIds.get("Daily Rate")! };
 
   // ---------------------------------------------------------------- suppliers
   const suppliers = [
@@ -314,20 +364,27 @@ export async function seedMasterData(db: Db, companyId: string) {
     const isVendor = person.position === "Vendor";
     const employee = await db.employee.upsert({
       where: { companyId_employeeNo: { companyId, employeeNo: person.no } },
-      update: { firstName: person.first, lastName: person.last, position: person.position },
+      update: {
+        firstName: person.first,
+        lastName: person.last,
+        position: person.position,
+        mobile: `0917 555 0${person.no.slice(-3)}`,
+        // Existing rows predate the two-scheme split, so re-point them.
+        compensationSchemeId: isVendor ? scheme.id : flatScheme.id,
+      },
       create: {
         ...co,
         employeeNo: person.no,
         firstName: person.first,
         lastName: person.last,
-        mobile: `0917 555 ${person.no.slice(-4)}`,
+        mobile: `0917 555 0${person.no.slice(-3)}`,
         position: person.position,
         dateHired: hired,
         employmentStatus: "REGULAR",
         branchId: person.branchId,
         cartId: person.cart ? cartIds.get(person.cart) ?? null : null,
         dailyRate: person.rate,
-        compensationSchemeId: isVendor ? scheme.id : null,
+        compensationSchemeId: isVendor ? scheme.id : flatScheme.id,
       },
     });
 

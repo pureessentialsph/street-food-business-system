@@ -2,9 +2,9 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can } from "@/lib/rbac";
-import { saveLocation, setActive } from "@/lib/actions/masterdata";
+import { deleteRecord, saveLocation, setActive } from "@/lib/actions/masterdata";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
-import { ArchiveButton, EntityForm } from "@/components/entity-form";
+import { ArchiveButton, DeleteButton, EntityForm } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, Checkbox, Field, Select, TextArea, TextInput } from "@/components/ui/field";
@@ -22,6 +22,7 @@ export default async function LocationsPage({
   const user = await requireUser();
   const db = scopedDb(user.companyId);
   const writable = can(user, "masterdata.write");
+  const deletable = can(user, "masterdata.delete");
   const q = params.q?.trim() ?? "";
 
   const locations = await db.location.findMany({
@@ -112,7 +113,17 @@ export default async function LocationsPage({
             header: "",
             cell: (l) =>
               writable ? (
-                <ArchiveButton isActive={l.isActive} label={l.name} action={setActive.bind(null, "location", l.id, !l.isActive)} />
+                <div className="flex items-center justify-end gap-2">
+                  <ArchiveButton isActive={l.isActive} label={l.name} action={setActive.bind(null, "location", l.id, !l.isActive)} />
+                  {deletable ? (
+                    <DeleteButton
+                      kind="location"
+                      label={l.name}
+                      action={deleteRecord.bind(null, "location", l.id)}
+                    />
+                  ) : null}
+                </div>
+                
               ) : null,
           },
         ]}

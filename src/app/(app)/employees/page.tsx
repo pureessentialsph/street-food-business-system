@@ -2,13 +2,14 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can, seesAllBranches } from "@/lib/rbac";
-import { saveEmployee, setActive } from "@/lib/actions/masterdata";
+import { deleteRecord, saveEmployee, setActive } from "@/lib/actions/masterdata";
 import { formatPHP } from "@/lib/money";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
-import { ArchiveButton, EntityForm } from "@/components/entity-form";
+import { ArchiveButton, DeleteButton, EntityForm } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, Checkbox, Field, NumberInput, Select, TextArea, TextInput } from "@/components/ui/field";
+import { PositionSelect } from "@/components/position-select";
 
 const STATUSES = ["PROBATIONARY", "REGULAR", "PART_TIME", "CONTRACTUAL", "SEPARATED"] as const;
 
@@ -21,12 +22,13 @@ export default async function EmployeesPage({
   const user = await requireUser();
   const db = scopedDb(user.companyId);
   const writable = can(user, "masterdata.write");
+  const deletable = can(user, "masterdata.delete");
   const showPay = can(user, "pay.readAll");
   const q = params.q?.trim() ?? "";
 
   const branchFilter = seesAllBranches(user) ? {} : { branchId: { in: user.scopeBranchIds } };
 
-  const [employees, branches, carts, schemes, supervisors] = await Promise.all([
+  const [employees, branches, carts, schemes, supervisors, positionRows, usedPositions] = await Promise.all([
     db.employee.findMany({
       where: {
         ...branchFilter,
@@ -55,7 +57,15 @@ export default async function EmployeesPage({
       where: { isActive: true, position: { not: { contains: "Vendor" } } },
       orderBy: { lastName: "asc" },
     }),
+    db.position.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+    // Titles already in use but never saved to the lookup — offered too, so the list is
+    // never missing something an operator can see on the page behind the form.
+    db.employee.findMany({ distinct: ["position"], select: { position: true } }),
   ]);
+
+  const positions = [
+    ...new Set([...positionRows.map((p) => p.name), ...usedPositions.map((e) => e.position)]),
+  ].sort((a, b) => a.localeCompare(b));
 
   const editing = params.edit ? await db.employee.findUnique({ where: { id: params.edit } }) : null;
   const showForm = writable && (params.new === "1" || editing);
@@ -79,8 +89,13 @@ export default async function EmployeesPage({
               <Field label="Employee no." name="employeeNo" required hint="e.g. EMP-011">
                 <TextInput id="employeeNo" name="employeeNo" defaultValue={editing?.employeeNo ?? ""} required autoCapitalize="characters" />
               </Field>
-              <Field label="Position" name="position" required hint="Vendor, Supervisor, Commissary Staff…">
-                <TextInput id="position" name="position" defaultValue={editing?.position ?? ""} required />
+              <Field
+                label="Position"
+                name="position"
+                required
+                hint="Pick a title, or add a new one — it is saved and offered next time."
+              >
+                <PositionSelect positions={positions} defaultValue={editing?.position ?? ""} />
               </Field>
               <Field label="First name" name="firstName" required>
                 <TextInput id="firstName" name="firstName" defaultValue={editing?.firstName ?? ""} required />
@@ -204,7 +219,17 @@ export default async function EmployeesPage({
             header: "",
             cell: (e) =>
               writable ? (
-                <ArchiveButton isActive={e.isActive} label={`${e.firstName} ${e.lastName}`} action={setActive.bind(null, "employee", e.id, !e.isActive)} />
+                <div className="flex items-center justify-end gap-2">
+                  <ArchiveButton isActive={e.isActive} label={`${e.firstName} ${e.lastName}`} action={setActive.bind(null, "employee", e.id, !e.isActive)} />
+                  {deletable ? (
+                    <DeleteButton
+                      kind="employee"
+                      label={`${e.firstName} ${e.lastName}`}
+                      action={deleteRecord.bind(null, "employee", e.id)}
+                    />
+                  ) : null}
+                </div>
+                
               ) : null,
           },
         ]}

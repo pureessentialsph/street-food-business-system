@@ -2,10 +2,10 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can, seesAllBranches } from "@/lib/rbac";
-import { saveCart, setActive } from "@/lib/actions/masterdata";
+import { deleteRecord, saveCart, setActive } from "@/lib/actions/masterdata";
 import { formatPHP } from "@/lib/money";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
-import { ArchiveButton, EntityForm } from "@/components/entity-form";
+import { ArchiveButton, DeleteButton, EntityForm } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, Checkbox, Field, NumberInput, Select, TextInput } from "@/components/ui/field";
@@ -19,6 +19,7 @@ export default async function CartsPage({
   const user = await requireUser();
   const db = scopedDb(user.companyId);
   const writable = can(user, "masterdata.write");
+  const deletable = can(user, "masterdata.delete");
   const q = params.q?.trim() ?? "";
 
   const branchFilter = seesAllBranches(user) ? {} : { branchId: { in: user.scopeBranchIds } };
@@ -154,7 +155,17 @@ export default async function CartsPage({
             header: "",
             cell: (c) =>
               writable ? (
-                <ArchiveButton isActive={c.status !== "RETIRED"} label={c.code} action={setActive.bind(null, "cart", c.id, c.status === "RETIRED")} />
+                <div className="flex items-center justify-end gap-2">
+                  <ArchiveButton isActive={c.status !== "RETIRED"} label={c.code} action={setActive.bind(null, "cart", c.id, c.status === "RETIRED")} />
+                  {deletable ? (
+                    <DeleteButton
+                      kind="cart"
+                      label={c.code}
+                      action={deleteRecord.bind(null, "cart", c.id)}
+                    />
+                  ) : null}
+                </div>
+                
               ) : null,
           },
         ]}

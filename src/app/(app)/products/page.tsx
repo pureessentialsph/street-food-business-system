@@ -2,11 +2,11 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can } from "@/lib/rbac";
-import { saveProduct, saveProductCategory, setActive } from "@/lib/actions/masterdata";
+import { deleteRecord, saveProduct, saveProductCategory, setActive } from "@/lib/actions/masterdata";
 import { formatPHP } from "@/lib/money";
 import { pricePerPieceFrom } from "@/lib/units";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
-import { ArchiveButton, EntityForm } from "@/components/entity-form";
+import { ArchiveButton, DeleteButton, EntityForm } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, Checkbox, Field, NumberInput, Select, TextInput } from "@/components/ui/field";
@@ -20,6 +20,7 @@ export default async function ProductsPage({
   const user = await requireUser();
   const db = scopedDb(user.companyId);
   const writable = can(user, "masterdata.write");
+  const deletable = can(user, "masterdata.delete");
   const q = params.q?.trim() ?? "";
 
   const [products, categories, priceList] = await Promise.all([
@@ -180,7 +181,18 @@ export default async function ProductsPage({
           { header: "Status", cell: (p) => (p.isActive ? <Badge tone="success">active</Badge> : <Badge tone="danger">archived</Badge>) },
           {
             header: "",
-            cell: (p) => (writable ? <ArchiveButton isActive={p.isActive} label={p.name} action={setActive.bind(null, "product", p.id, !p.isActive)} /> : null),
+            cell: (p) => (writable ?
+                <div className="flex items-center justify-end gap-2">
+                  <ArchiveButton isActive={p.isActive} label={p.name} action={setActive.bind(null, "product", p.id, !p.isActive)} />
+                  {deletable ? (
+                    <DeleteButton
+                      kind="product"
+                      label={p.name}
+                      action={deleteRecord.bind(null, "product", p.id)}
+                    />
+                  ) : null}
+                </div>
+                 : null),
           },
         ]}
       />

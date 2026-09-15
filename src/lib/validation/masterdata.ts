@@ -143,7 +143,12 @@ export const employeeSchema = z.object({
   address: optionalText,
   emergencyContactName: optionalText,
   emergencyContactNo: optionalText,
-  position: z.string().trim().min(2, "Position is required").max(60),
+  position: z
+    .string()
+    .trim()
+    .min(2, "Position is required")
+    .max(60)
+    .refine((v) => v !== "__new__", "Type the new position name"),
   dateHired: isoDate,
   employmentStatus: z.enum(["PROBATIONARY", "REGULAR", "PART_TIME", "CONTRACTUAL", "SEPARATED"]),
   branchId: optionalId,

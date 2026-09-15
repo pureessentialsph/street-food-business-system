@@ -6,6 +6,7 @@ import {
   setComponentSchema, setDefinitionSchema, supplierSchema,
 } from "@/lib/validation/masterdata";
 import { assertScope } from "@/lib/rbac";
+import type { ScopedDb } from "@/lib/db";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 /**
@@ -14,6 +15,23 @@ import { audit, parseForm, refresh, toActionError, withPermission, type ActionRe
  */
 
 const nullable = (v: string | undefined) => (v === undefined || v === "" ? null : v);
+
+/**
+ * A job title typed into the employee form is kept, so the next hire can pick it from
+ * the list. Failing to remember it must never fail the save — the employee matters,
+ * the lookup row is a convenience.
+ */
+async function rememberPosition(ctx: { db: ScopedDb }, name: string): Promise<void> {
+  try {
+    await ctx.db.position.upsert({
+      where: { companyId_name: { companyId: ctx.db.$companyId, name } },
+      update: { isActive: true },
+      create: { companyId: ctx.db.$companyId, name },
+    });
+  } catch (error) {
+    console.error("[rememberPosition]", error);
+  }
+}
 
 // --------------------------------------------------------------------- branches
 export async function saveBranch(id: string | null, formData: FormData): Promise<ActionResult> {
@@ -350,12 +368,14 @@ export async function saveEmployee(id: string | null, formData: FormData): Promi
           },
         });
       }
+      await rememberPosition(ctx, after.position);
       await audit(ctx, "UPDATE", "Employee", id, before, after);
       refresh("/employees");
       return { ok: true, id, message: `${after.firstName} ${after.lastName} saved.` };
     }
 
     const created = await ctx.db.employee.create({ data: { ...data, companyId: ctx.db.$companyId } });
+    await rememberPosition(ctx, created.position);
     await ctx.db.employmentEvent.create({
       data: {
         companyId: ctx.db.$companyId,
@@ -481,6 +501,145 @@ export async function setActive(
     }
     refresh("/branches", "/locations", "/carts", "/suppliers", "/ingredients", "/products", "/employees");
     return { ok: true, message: isActive ? "Restored." : "Archived." };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Hard delete, for genuine mistakes — a cart created with a typo this morning.
+ *
+ * Refuses the moment a record has dependents, because deleting one would either orphan
+ * history or silently blank a field on a record that still matters. The operator is told
+ * exactly what is in the way and pointed at Archive, which is the right answer for
+ * anything that has ever traded.
+ */
+type DeletableEntity =
+  | "branch" | "location" | "cart" | "supplier" | "ingredient" | "product" | "employee";
+
+export async function deleteRecord(
+  entity: DeletableEntity,
+  id: string,
+): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("masterdata.delete");
+    const db = ctx.db;
+
+    const blockers: string[] = [];
+    let label = id;
+    let before: unknown = null;
+
+    const count = (n: number, one: string, many = `${one}s`) =>
+      `${n} ${n === 1 ? one : many}`;
+
+    switch (entity) {
+      case "branch": {
+        const row = await db.branch.findUnique({
+          where: { id },
+          include: { _count: { select: { carts: true, employees: true } } },
+        });
+        if (!row) return { ok: false, error: "That branch no longer exists." };
+        before = row;
+        label = row.code;
+        if (row._count.carts) blockers.push(count(row._count.carts, "cart"));
+        if (row._count.employees) blockers.push(count(row._count.employees, "employee"));
+        break;
+      }
+      case "location": {
+        const row = await db.location.findUnique({
+          where: { id },
+          include: { _count: { select: { carts: true } } },
+        });
+        if (!row) return { ok: false, error: "That location no longer exists." };
+        before = row;
+        label = row.name;
+        if (row._count.carts) blockers.push(count(row._count.carts, "cart"));
+        break;
+      }
+      case "cart": {
+        const row = await db.cart.findUnique({
+          where: { id },
+          include: { _count: { select: { assignedStaff: true } } },
+        });
+        if (!row) return { ok: false, error: "That cart no longer exists." };
+        before = row;
+        label = row.code;
+        if (row._count.assignedStaff) {
+          blockers.push(`${count(row._count.assignedStaff, "employee")} assigned to it`);
+        }
+        break;
+      }
+      case "supplier": {
+        const row = await db.supplier.findUnique({
+          where: { id },
+          include: { _count: { select: { ingredients: true } } },
+        });
+        if (!row) return { ok: false, error: "That supplier no longer exists." };
+        before = row;
+        label = row.name;
+        // Supplier-ingredient links are just a price book; they go with the supplier.
+        break;
+      }
+      case "ingredient": {
+        const row = await db.ingredient.findUnique({ where: { id } });
+        if (!row) return { ok: false, error: "That ingredient no longer exists." };
+        before = row;
+        label = row.name;
+        // Recipe lines arrive in Phase 2 and must be added as a blocker here.
+        break;
+      }
+      case "product": {
+        const row = await db.product.findUnique({
+          where: { id },
+          include: { _count: { select: { setComponents: true, priceListItems: true } } },
+        });
+        if (!row) return { ok: false, error: "That product no longer exists." };
+        before = row;
+        label = row.name;
+        if (row._count.setComponents) {
+          blockers.push(`${count(row._count.setComponents, "set")} that includes it`);
+        }
+        break;
+      }
+      case "employee": {
+        const row = await db.employee.findUnique({
+          where: { id },
+          include: { _count: { select: { logins: true, cartsDefaulted: true, reports: true } } },
+        });
+        if (!row) return { ok: false, error: "That employee no longer exists." };
+        before = row;
+        label = `${row.firstName} ${row.lastName}`;
+        if (row._count.logins) blockers.push(`${count(row._count.logins, "user login")}`);
+        if (row._count.cartsDefaulted) {
+          blockers.push(`${count(row._count.cartsDefaulted, "cart")} where they are the usual vendor`);
+        }
+        if (row._count.reports) blockers.push(`${count(row._count.reports, "direct report")}`);
+        break;
+      }
+    }
+
+    if (blockers.length > 0) {
+      return {
+        ok: false,
+        error: `${label} still has ${blockers.join(" and ")}. Reassign those first, or use Archive to take it out of use while keeping its history.`,
+      };
+    }
+
+    // Audit BEFORE the row disappears, so the deletion itself leaves a trace.
+    await audit(ctx, "DELETE", entity, id, before, null);
+
+    switch (entity) {
+      case "branch": await db.branch.delete({ where: { id } }); break;
+      case "location": await db.location.delete({ where: { id } }); break;
+      case "cart": await db.cart.delete({ where: { id } }); break;
+      case "supplier": await db.supplier.delete({ where: { id } }); break;
+      case "ingredient": await db.ingredient.delete({ where: { id } }); break;
+      case "product": await db.product.delete({ where: { id } }); break;
+      case "employee": await db.employee.delete({ where: { id } }); break;
+    }
+
+    refresh("/branches", "/locations", "/carts", "/suppliers", "/ingredients", "/products", "/employees", "/price-list", "/sets");
+    return { ok: true, message: `${label} deleted.` };
   } catch (error) {
     return toActionError(error);
   }

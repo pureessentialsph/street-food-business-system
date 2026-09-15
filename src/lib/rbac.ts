@@ -20,6 +20,7 @@ const COMPANY_WIDE: ReadonlySet<Role> = new Set<Role>(["OWNER", "ADMIN"]);
 export type Permission =
   | "company.manage"
   | "masterdata.write"
+  | "masterdata.delete"
   | "costing.write"
   | "inventory.write"
   | "shift.open"
@@ -38,13 +39,13 @@ export type Permission =
 
 const PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   OWNER: new Set<Permission>([
-    "company.manage", "masterdata.write", "costing.write", "inventory.write",
+    "company.manage", "masterdata.write", "masterdata.delete", "costing.write", "inventory.write",
     "shift.open", "shift.close", "shift.approve", "payroll.run", "payroll.approve",
     "expense.write", "expense.approve", "procurement.approve", "employee.read",
     "employee.documents", "pay.readAll", "cost.read", "reports.read",
   ]),
   ADMIN: new Set<Permission>([
-    "masterdata.write", "costing.write", "inventory.write", "shift.open", "shift.close",
+    "masterdata.write", "masterdata.delete", "costing.write", "inventory.write", "shift.open", "shift.close",
     "shift.approve", "payroll.run", "payroll.approve", "expense.write", "expense.approve",
     "procurement.approve", "employee.read", "employee.documents", "pay.readAll",
     "cost.read", "reports.read",

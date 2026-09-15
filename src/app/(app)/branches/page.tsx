@@ -1,9 +1,9 @@
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can, seesAllBranches } from "@/lib/rbac";
-import { saveBranch, setActive } from "@/lib/actions/masterdata";
+import { deleteRecord, saveBranch, setActive } from "@/lib/actions/masterdata";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
-import { ArchiveButton, EntityForm } from "@/components/entity-form";
+import { ArchiveButton, DeleteButton, EntityForm } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, Checkbox, Field, Select, TextArea, TextInput } from "@/components/ui/field";
@@ -18,6 +18,7 @@ export default async function BranchesPage({
   const user = await requireUser();
   const db = scopedDb(user.companyId);
   const writable = can(user, "masterdata.write");
+  const deletable = can(user, "masterdata.delete");
 
   const q = params.q?.trim() ?? "";
   const branches = await db.branch.findMany({
@@ -121,11 +122,21 @@ export default async function BranchesPage({
             header: "",
             cell: (b) =>
               writable ? (
-                <ArchiveButton
+                <div className="flex items-center justify-end gap-2">
+                  <ArchiveButton
                   isActive={b.isActive}
                   label={b.code}
                   action={setActive.bind(null, "branch", b.id, !b.isActive)}
                 />
+                  {deletable ? (
+                    <DeleteButton
+                      kind="branch"
+                      label={b.code}
+                      action={deleteRecord.bind(null, "branch", b.id)}
+                    />
+                  ) : null}
+                </div>
+                
               ) : null,
           },
         ]}
