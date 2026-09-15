@@ -38,61 +38,84 @@ enum BranchType {
 /// The tenant root. One row in the MVP; the column exists on every other table
 /// so selling the system to a second operator is a config change, not a rewrite.
 model Company {
-  id                     String   @id @default(cuid())
-  code                   String   @unique
-  name                   String
-  currency               String   @default("PHP")
-  timezone               String   @default("Asia/Manila")
-  businessDayCutoffHour  Int      @default(4)
-  defaultWastagePct      Decimal  @default(0) @db.Decimal(14, 4)
-  cashVarianceThreshold  Decimal  @default(100) @db.Decimal(14, 4)
-  settings               Json     @default("{}")
-  isActive               Boolean  @default(true)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  code                  String   @unique
+  name                  String
+  currency              String   @default("PHP")
+  timezone              String   @default("Asia/Manila")
+  businessDayCutoffHour Int      @default(4)
+  defaultWastagePct     Decimal  @default(0) @db.Decimal(14, 4)
+  cashVarianceThreshold Decimal  @default(100) @db.Decimal(14, 4)
+  settings              Json     @default("{}")
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-  branches   Branch[]
-  users      User[]
-  auditLogs  AuditLog[]
-  scopes     UserBranchScope[]
+  branches  Branch[]
+  users     User[]
+  auditLogs AuditLog[]
+  scopes    UserBranchScope[]
+
+  // Phase 1 master data
+  areas               Area[]
+  locations           Location[]
+  carts               Cart[]
+  employees           Employee[]
+  employmentEvents    EmploymentEvent[]
+  compensationSchemes CompensationScheme[]
+  suppliers           Supplier[]
+  ingredients         Ingredient[]
+  supplierIngredients SupplierIngredient[]
+  ingredientCosts     IngredientCostHistory[]
+  productCategories   ProductCategory[]
+  products            Product[]
+  priceLists          PriceList[]
+  priceListItems      PriceListItem[]
+  setDefinitions      SetDefinition[]
+  setComponents       SetComponent[]
 }
 
 model Branch {
-  id        String     @id @default(cuid())
-  companyId String
-  code      String
-  name      String
-  type      BranchType @default(BRANCH)
-  address   String?
-  isActive  Boolean    @default(true)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id          String     @id @default(cuid())
+  companyId   String
+  code        String
+  name        String
+  type        BranchType @default(BRANCH)
+  areaId      String?
+  address     String?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   createdById String?
 
-  company Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  scopes  UserBranchScope[]
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  scopes    UserBranchScope[]
+  carts     Cart[]
+  employees Employee[]
+  area      Area?             @relation(fields: [areaId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, code])
   @@index([companyId, isActive])
 }
 
 model User {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   companyId    String
   email        String
   passwordHash String
   name         String
   role         Role
-  employeeId   String? // FK added in Phase 1 with the Employee model
-  isActive     Boolean  @default(true)
+  employeeId   String?
+  isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
   createdById  String?
 
   company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   scopes    UserBranchScope[]
   auditLogs AuditLog[]
+  employee  Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
 
   // Email is unique per company, not globally: two operators may both have
   // an owner@ address once the system is sold on.
@@ -131,4 +154,443 @@ model AuditLog {
 
   @@index([companyId, entity, entityId])
   @@index([companyId, at])
+}
+
+// ===========================================================================
+// PHASE 1 — MASTER DATA
+//
+// Every model below carries companyId (spec §3 rule 8). Money and quantities are
+// Decimal(14,4) — the unit ladder lives here: Product.piecesPerStick converts the
+// stock unit (pieces) to the commercial unit (sticks), and SetComponent expresses
+// the incentive unit (sets) in sticks. See spec §5.3.1.
+// ===========================================================================
+
+enum LocationType {
+  SCHOOL
+  OFFICE
+  FACTORY
+  TERMINAL
+  MARKET
+  RESIDENTIAL
+  COMMERCIAL
+  OTHER
+}
+
+enum CartType {
+  FOOD_CART
+  MOTOR_CART
+  KIOSK
+}
+
+enum CartStatus {
+  ACTIVE
+  IDLE
+  MAINTENANCE
+  RETIRED
+}
+
+enum EmploymentStatus {
+  PROBATIONARY
+  REGULAR
+  PART_TIME
+  CONTRACTUAL
+  SEPARATED
+}
+
+enum EmploymentEventType {
+  HIRED
+  REGULARIZED
+  TRANSFERRED
+  PROMOTED
+  RATE_CHANGE
+  SUSPENDED
+  SEPARATED
+}
+
+enum IngredientCategory {
+  RAW
+  PACKAGING
+  CONDIMENT
+  OIL
+  CONSUMABLE
+}
+
+enum BaseUnit {
+  G
+  ML
+  PC
+}
+
+/// Pieces are the only stock unit; a stick is the commercial unit (spec §5.3.1).
+enum SellingUnit {
+  PIECE
+  STICK
+}
+
+enum PriceScope {
+  COMPANY
+  BRANCH
+  CART
+}
+
+/// How a five-product set pays out. PER_COMPONENT is the owner's confirmed choice.
+enum SetCompletionMode {
+  PER_COMPONENT
+  ALL_COMPONENTS
+  PROPORTIONAL
+}
+
+enum CostSource {
+  MANUAL
+  PURCHASE_RECEIPT
+  IMPORT
+}
+
+model Area {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  managerId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branches Branch[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model Location {
+  id          String       @id @default(cuid())
+  companyId   String
+  name        String
+  type        LocationType @default(OTHER)
+  address     String?
+  lat         Decimal?     @db.Decimal(10, 7)
+  lng         Decimal?     @db.Decimal(10, 7)
+  notes       String?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  createdById String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  carts   Cart[]
+
+  @@unique([companyId, name])
+  @@index([companyId, type])
+}
+
+model Cart {
+  id               String     @id @default(cuid())
+  companyId        String
+  code             String
+  name             String
+  type             CartType   @default(FOOD_CART)
+  branchId         String
+  locationId       String?
+  status           CartStatus @default(ACTIVE)
+  defaultVendorId  String?
+  dailySalesTarget Decimal?   @db.Decimal(14, 4)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  createdById      String?
+
+  company       Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch        Branch     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  location      Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  defaultVendor Employee?  @relation("CartDefaultVendor", fields: [defaultVendorId], references: [id], onDelete: SetNull)
+  assignedStaff Employee[] @relation("EmployeeAssignedCart")
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId, status])
+}
+
+model CompensationScheme {
+  id                   String   @id @default(cuid())
+  companyId            String
+  name                 String
+  baseDailyRate        Decimal  @db.Decimal(14, 4)
+  /// Shortages are deducted in full by default; null here means uncapped (spec §15.5).
+  deductShortage       Boolean  @default(true)
+  maxShortageDeduction Decimal? @db.Decimal(14, 4)
+  description          String?
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  createdById          String?
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employees Employee[]
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+}
+
+model Employee {
+  id                   String           @id @default(cuid())
+  companyId            String
+  employeeNo           String
+  firstName            String
+  middleName           String?
+  lastName             String
+  birthDate            DateTime?        @db.Date
+  mobile               String
+  email                String?
+  address              String?
+  emergencyContactName String?
+  emergencyContactNo   String?
+  position             String
+  dateHired            DateTime         @db.Date
+  employmentStatus     EmploymentStatus @default(PROBATIONARY)
+  separationDate       DateTime?        @db.Date
+  branchId             String?
+  cartId               String?
+  dailyRate            Decimal          @db.Decimal(14, 4)
+  compensationSchemeId String?
+  supervisorId         String?
+  photoKey             String?
+  isActive             Boolean          @default(true)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  createdById          String?
+
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch             Branch?             @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  assignedCart       Cart?               @relation("EmployeeAssignedCart", fields: [cartId], references: [id], onDelete: SetNull)
+  compensationScheme CompensationScheme? @relation(fields: [compensationSchemeId], references: [id], onDelete: SetNull)
+  supervisor         Employee?           @relation("EmployeeSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
+  reports            Employee[]          @relation("EmployeeSupervisor")
+  cartsDefaulted     Cart[]              @relation("CartDefaultVendor")
+  events             EmploymentEvent[]
+  logins             User[]
+
+  @@unique([companyId, employeeNo])
+  @@index([companyId, isActive])
+  @@index([companyId, branchId])
+}
+
+model EmploymentEvent {
+  id            String              @id @default(cuid())
+  companyId     String
+  employeeId    String
+  type          EmploymentEventType
+  effectiveDate DateTime            @db.Date
+  details       Json                @default("{}")
+  createdAt     DateTime            @default(now())
+  createdById   String?
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, employeeId, effectiveDate])
+}
+
+model Supplier {
+  id            String   @id @default(cuid())
+  companyId     String
+  name          String
+  contactPerson String?
+  mobile        String?
+  address       String?
+  leadTimeDays  Int      @default(1)
+  paymentTerms  String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdById   String?
+
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ingredients SupplierIngredient[]
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+}
+
+model Ingredient {
+  id                     String             @id @default(cuid())
+  companyId              String
+  sku                    String
+  name                   String
+  category               IngredientCategory @default(RAW)
+  baseUnit               BaseUnit           @default(G)
+  /// Current cost of ONE base unit. Changing it writes IngredientCostHistory (Phase 2).
+  currentCostPerBaseUnit Decimal            @db.Decimal(14, 4)
+  minStock               Decimal            @default(0) @db.Decimal(14, 4)
+  safetyStock            Decimal            @default(0) @db.Decimal(14, 4)
+  packSize               Decimal            @default(1) @db.Decimal(14, 4)
+  isActive               Boolean            @default(true)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  createdById            String?
+
+  company     Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  suppliers   SupplierIngredient[]
+  costHistory IngredientCostHistory[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, category, isActive])
+}
+
+model SupplierIngredient {
+  id                       String   @id @default(cuid())
+  companyId                String
+  supplierId               String
+  ingredientId             String
+  /// How the supplier sells it: "sack 25kg", "tray 30pcs".
+  purchaseUnitName         String
+  baseUnitsPerPurchaseUnit Decimal  @db.Decimal(14, 4)
+  lastPurchasePrice        Decimal  @db.Decimal(14, 4)
+  isPreferred              Boolean  @default(false)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  createdById              String?
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier   Supplier   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierId, ingredientId])
+  @@index([companyId, ingredientId])
+}
+
+model IngredientCostHistory {
+  id              String     @id @default(cuid())
+  companyId       String
+  ingredientId    String
+  costPerBaseUnit Decimal    @db.Decimal(14, 4)
+  effectiveFrom   DateTime
+  source          CostSource @default(MANUAL)
+  refId           String?
+  createdAt       DateTime   @default(now())
+  createdById     String?
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, ingredientId, effectiveFrom])
+}
+
+model ProductCategory {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([companyId, name])
+  @@index([companyId, sortOrder])
+}
+
+model Product {
+  id             String      @id @default(cuid())
+  companyId      String
+  sku            String
+  name           String
+  categoryId     String
+  sellingUnit    SellingUnit @default(STICK)
+  /// Pieces on one stick: kwek-kwek 4, calamares 3, squidball 5, fishball 10, kikiam 4.
+  piecesPerStick Decimal     @default(1) @db.Decimal(14, 4)
+  imageKey       String?
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  createdById    String?
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category       ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  priceListItems PriceListItem[]
+  setComponents  SetComponent[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, categoryId, isActive])
+}
+
+model PriceList {
+  id            String     @id @default(cuid())
+  companyId     String
+  name          String
+  scopeType     PriceScope @default(COMPANY)
+  scopeId       String?
+  effectiveFrom DateTime   @db.Date
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  createdById   String?
+
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   PriceListItem[]
+
+  @@unique([companyId, name])
+  @@index([companyId, scopeType, isActive])
+}
+
+model PriceListItem {
+  id            String   @id @default(cuid())
+  companyId     String
+  priceListId   String
+  productId     String
+  /// What a customer pays for one stick. pricePerPiece is derived, never stored.
+  pricePerStick Decimal  @db.Decimal(14, 4)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdById   String?
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  priceList PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([priceListId, productId])
+  @@index([companyId, productId])
+}
+
+model SetDefinition {
+  id                  String            @id @default(cuid())
+  companyId           String
+  code                String
+  name                String
+  /// Pesos earned for a full set. Split across components under PER_COMPONENT.
+  incentiveAmount     Decimal           @db.Decimal(14, 4)
+  completionMode      SetCompletionMode @default(PER_COMPONENT)
+  /// null = a component may stack credits without limit (spec §8).
+  maxSetsPerComponent Int?
+  effectiveFrom       DateTime          @db.Date
+  isActive            Boolean           @default(true)
+  notes               String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  createdById         String?
+
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  components SetComponent[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+}
+
+model SetComponent {
+  id              String   @id @default(cuid())
+  companyId       String
+  setDefinitionId String
+  productId       String
+  /// Sticks of this product needed for one set — 50 in the standard set.
+  requiredSticks  Decimal  @db.Decimal(14, 4)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdById     String?
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  setDefinition SetDefinition @relation(fields: [setDefinitionId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([setDefinitionId, productId])
+  @@index([companyId, productId])
 }

@@ -7,6 +7,7 @@
  */
 import { PrismaClient, type Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { seedMasterData } from "./seed-masterdata";
 
 const db = new PrismaClient();
 
@@ -151,6 +152,15 @@ async function main() {
   // Tenant-isolation fixture. Deliberately reuses the primary owner's email, which is
   // why User.email is unique per company and not globally.
   //
+  // Phase 1 master data is real operating configuration, not a fixture: a live
+  // deployment needs its carts, products and prices just as much as a laptop does.
+  const counts = await seedMasterData(db, primary.id);
+  console.log(
+    `Master data: ${counts.locations} locations, ${counts.suppliers} suppliers, ` +
+      `${counts.ingredients} ingredients, ${counts.products} products, ` +
+      `${counts.carts} carts, ${counts.employees} employees.`,
+  );
+
   // NEVER seeded in production: a live deployment must not carry a second company with a
   // known password. Set SEED_FIXTURES=true (CI and local dev do) to include it.
   if (!WANT_FIXTURES) {
