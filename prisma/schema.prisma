@@ -77,6 +77,13 @@ model Company {
   recipes             Recipe[]
   recipeLines         RecipeLine[]
   productCostVersions ProductCostVersion[]
+  inventoryTxns       InventoryTransaction[]
+  stockBalances       StockBalance[]
+  stockTransfers      StockTransfer[]
+  stockTransferLines  StockTransferLine[]
+  productionBatches   ProductionBatch[]
+  physicalCounts      PhysicalCount[]
+  physicalCountLines  PhysicalCountLine[]
 }
 
 model Branch {
@@ -719,4 +726,220 @@ model ProductCostVersion {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([companyId, productId, effectiveFrom])
+}
+
+// ===========================================================================
+// PHASE 3 — INVENTORY
+//
+// The ledger is APPEND-ONLY (spec §3 rule 3). Nothing is ever updated or deleted;
+// a correction is a new ADJUSTMENT row. StockBalance is a derived cache written in
+// the same transaction as the ledger row, and `pnpm rebuild:balances` can rebuild it
+// from the ledger alone — a test asserts the two always agree.
+// ===========================================================================
+
+enum ItemType {
+  INGREDIENT
+  PRODUCT
+}
+
+enum StockLocationType {
+  WAREHOUSE
+  BRANCH
+  CART
+  EMPLOYEE
+}
+
+enum InventoryTxnType {
+  PURCHASE_RECEIPT
+  PRODUCTION_IN
+  PRODUCTION_CONSUME
+  TRANSFER_OUT
+  TRANSFER_IN
+  ISSUE_TO_VENDOR
+  RETURN_FROM_VENDOR
+  SALE_CONSUMPTION
+  WASTE
+  SPOILAGE
+  DAMAGE
+  ADJUSTMENT
+  COUNT_VARIANCE
+}
+
+enum TransferStatus {
+  DRAFT
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+enum BatchStatus {
+  DRAFT
+  COMPLETED
+}
+
+enum CountStatus {
+  DRAFT
+  POSTED
+}
+
+model InventoryTransaction {
+  id           String            @id @default(cuid())
+  companyId    String
+  itemType     ItemType
+  itemId       String
+  locationType StockLocationType
+  locationId   String
+  /// Signed: positive moves stock in, negative moves it out.
+  qty          Decimal           @db.Decimal(14, 4)
+  unitCost     Decimal           @db.Decimal(14, 4)
+  type         InventoryTxnType
+  refType      String
+  refId        String
+  businessDate DateTime          @db.Date
+  occurredAt   DateTime          @default(now())
+  reason       String?
+  createdAt    DateTime          @default(now())
+  createdById  String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, itemType, itemId, locationType, locationId])
+  @@index([companyId, businessDate])
+  @@index([companyId, refType, refId])
+}
+
+/// Derived cache. Never the source of truth — rebuild:balances reconstructs it.
+model StockBalance {
+  id           String            @id @default(cuid())
+  companyId    String
+  itemType     ItemType
+  itemId       String
+  locationType StockLocationType
+  locationId   String
+  qty          Decimal           @default(0) @db.Decimal(14, 4)
+  /// Weighted average of what is actually on hand here.
+  avgUnitCost  Decimal           @default(0) @db.Decimal(14, 4)
+  updatedAt    DateTime          @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([itemType, itemId, locationType, locationId, companyId])
+  @@index([companyId, locationType, locationId])
+}
+
+model StockTransfer {
+  id               String            @id @default(cuid())
+  companyId        String
+  reference        String
+  fromLocationType StockLocationType
+  fromLocationId   String
+  toLocationType   StockLocationType
+  toLocationId     String
+  status           TransferStatus    @default(DRAFT)
+  businessDate     DateTime          @db.Date
+  dispatchedAt     DateTime?
+  dispatchedById   String?
+  receivedAt       DateTime?
+  receivedById     String?
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  createdById      String?
+
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   StockTransferLine[]
+
+  @@unique([companyId, reference])
+  @@index([companyId, status])
+}
+
+model StockTransferLine {
+  id          String   @id @default(cuid())
+  companyId   String
+  transferId  String
+  itemType    ItemType
+  itemId      String
+  qtySent     Decimal  @db.Decimal(14, 4)
+  /// Set on receipt. A gap against qtySent is shrinkage and posts as an ADJUSTMENT.
+  qtyReceived Decimal? @db.Decimal(14, 4)
+  unitCost    Decimal  @db.Decimal(14, 4)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@unique([transferId, itemType, itemId])
+  @@index([companyId, itemId])
+}
+
+/// The commissary turning ingredients into countable pieces.
+model ProductionBatch {
+  id            String      @id @default(cuid())
+  companyId     String
+  reference     String
+  branchId      String
+  productId     String
+  recipeVersion Int
+  plannedQty    Decimal     @db.Decimal(14, 4)
+  actualQty     Decimal     @default(0) @db.Decimal(14, 4)
+  wasteQty      Decimal     @default(0) @db.Decimal(14, 4)
+  unitCost      Decimal     @default(0) @db.Decimal(14, 4)
+  status        BatchStatus @default(DRAFT)
+  businessDate  DateTime    @db.Date
+  producedAt    DateTime?
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  createdById   String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, reference])
+  @@index([companyId, status, businessDate])
+}
+
+model PhysicalCount {
+  id           String            @id @default(cuid())
+  companyId    String
+  reference    String
+  locationType StockLocationType
+  locationId   String
+  status       CountStatus       @default(DRAFT)
+  businessDate DateTime          @db.Date
+  countedAt    DateTime          @default(now())
+  countedById  String?
+  postedAt     DateTime?
+  notes        String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  createdById  String?
+
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   PhysicalCountLine[]
+
+  @@unique([companyId, reference])
+  @@index([companyId, status])
+}
+
+model PhysicalCountLine {
+  id         String   @id @default(cuid())
+  companyId  String
+  countId    String
+  itemType   ItemType
+  itemId     String
+  /// What the ledger said at the moment of counting.
+  systemQty  Decimal  @db.Decimal(14, 4)
+  countedQty Decimal  @db.Decimal(14, 4)
+  variance   Decimal  @db.Decimal(14, 4)
+  unitCost   Decimal  @default(0) @db.Decimal(14, 4)
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  count   PhysicalCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+
+  @@unique([countId, itemType, itemId])
+  @@index([companyId, itemId])
 }

@@ -125,6 +125,7 @@ export const NAV: NavItem[] = [
   { href: "/products", label: "Products", permission: "masterdata.write" },
   { href: "/price-list", label: "Prices", permission: "masterdata.write" },
   { href: "/sets", label: "Sets", permission: "reports.read" },
+  { href: "/inventory", label: "Inventory", permission: "inventory.write" },
   { href: "/costing", label: "Costing", permission: "cost.read" },
   { href: "/ingredients", label: "Ingredients", permission: "cost.read" },
   { href: "/suppliers", label: "Suppliers", permission: "masterdata.write" },
