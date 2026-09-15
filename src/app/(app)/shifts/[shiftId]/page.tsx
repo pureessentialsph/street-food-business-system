@@ -8,6 +8,8 @@ import { dec, formatPHP, formatPct, sum } from "@/lib/money";
 import { piecesToSticks } from "@/lib/units";
 import { formatBusinessDate, fromDateColumn } from "@/lib/businessDate";
 import { ClosingGrid } from "./closing-grid";
+import { EmptyShiftActions } from "./empty-shift-actions";
+import { SuppliesForm } from "./supplies-form";
 import { IssueForm } from "./issue-form";
 import { ActionButton } from "@/components/action-button";
 import { PageHeader } from "@/components/data-table";
@@ -32,12 +34,22 @@ export default async function ShiftPage({
   });
   if (!shift) notFound();
 
-  const [cart, vendor, products, closer] = await Promise.all([
+  const [cart, vendor, products, closer, supplyItems, branchStock] = await Promise.all([
     db.cart.findUnique({ where: { id: shift.cartId }, include: { branch: true, location: true } }),
     db.employee.findUnique({ where: { id: shift.employeeId } }),
     db.product.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     shift.closedById ? db.user.findUnique({ where: { id: shift.closedById } }) : null,
+    // Sauce, cups, bags, sticks and oil — issued for traceability, never charged twice.
+    db.ingredient.findMany({
+      where: { isActive: true, category: { in: ["PACKAGING", "CONDIMENT", "OIL", "CONSUMABLE"] } },
+      orderBy: [{ category: "asc" }, { name: "asc" }],
+    }),
+    db.stockBalance.findMany({
+      where: { itemType: "INGREDIENT", locationType: "BRANCH", locationId: shift.branchId },
+    }),
   ]);
+
+  const branchOnHand = new Map(branchStock.map((b) => [b.itemId, b.qty.toString()]));
 
   const productName = new Map(products.map((p) => [p.id, p.name]));
 
@@ -124,6 +136,24 @@ export default async function ShiftPage({
                 alreadyIssued: (issuedTotals.get(p.id)?.qty ?? dec(0)).toFixed(0),
               }))}
             />
+
+            <div className="mt-4">
+              <SuppliesForm
+                shiftId={shift.id}
+                supplies={supplyItems.map((item) => ({
+                  id: item.id,
+                  name: item.name,
+                  baseUnit: item.baseUnit,
+                  onHand: branchOnHand.get(item.id) ?? "0",
+                }))}
+              />
+            </div>
+
+            {issuedTotals.size === 0 ? (
+              <div className="mt-4">
+                <EmptyShiftActions shiftId={shift.id} cartCode={cart?.code ?? "this cart"} />
+              </div>
+            ) : null}
           </CardBody>
         </Card>
       ) : null}

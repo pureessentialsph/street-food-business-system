@@ -41,8 +41,11 @@ export default async function BatchIssuePage({
       where: { businessDate: dateColumn, ...branchFilter },
       include: { issues: { include: { lines: true } } },
     }),
+    // Every sellable product, not only the five in the set — carts also carry drinks,
+    // fries and anything else priced.
     db.product.findMany({
-      where: { isActive: true, setComponents: { some: {} } },
+      where: { isActive: true },
+      include: { setComponents: { select: { id: true } } },
       orderBy: { name: "asc" },
     }),
     // What each cart issued over its last 7 closed days, for the "same as usual" default.
@@ -109,8 +112,8 @@ export default async function BatchIssuePage({
 
       {products.length === 0 ? (
         <EmptyState
-          title="No set products to issue"
-          action="Add products to the standard set first — those are what carts carry."
+          title="No products to issue"
+          action="Add some products first — carts can only be loaded with what exists."
         />
       ) : (
         <BatchIssueBoard
@@ -119,6 +122,7 @@ export default async function BatchIssuePage({
             id: p.id,
             name: p.name,
             piecesPerStick: p.piecesPerStick.toString(),
+            inSet: p.setComponents.length > 0,
           }))}
         />
       )}

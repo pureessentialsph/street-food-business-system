@@ -474,3 +474,145 @@ export async function suggestedQuantities(cartId: string): Promise<Record<string
     ]),
   );
 }
+
+/**
+ * Cancel a shift that was opened by mistake.
+ *
+ * Only possible while nothing has been issued — once stock has moved to a vendor the
+ * shift must be closed and counted, not made to disappear. Nothing has touched the
+ * ledger at this point, so removing the row leaves no hole; the audit entry records
+ * that it happened.
+ */
+export async function cancelShift(shiftId: string): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("shift.open");
+    const shift = await ctx.db.cartShift.findUnique({
+      where: { id: shiftId },
+      include: { issues: true },
+    });
+    if (!shift) return { ok: false, error: "That shift no longer exists." };
+    assertScope(ctx.user, shift.branchId);
+
+    if (shift.status !== "OPEN") {
+      return { ok: false, error: "Only an open shift can be cancelled. This one is already closed." };
+    }
+    if (shift.issues.length > 0) {
+      return {
+        ok: false,
+        error: "Stock has already been issued on this shift, so it has to be counted back and closed rather than cancelled.",
+      };
+    }
+
+    await audit(ctx, "DELETE", "CartShift", shiftId, shift, null);
+    await ctx.db.cartShift.delete({ where: { id: shiftId } });
+
+    refresh("/shifts", "/dashboard");
+    return { ok: true, message: "Shift cancelled — the cart is back to not opened." };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Close a shift on which nothing was issued: the cart never traded today.
+ *
+ * Kept separate from cancelling because the two mean different things — a cancelled
+ * shift never happened, while a zero close is a recorded day with no sales, which is
+ * what you want when a vendor turned up and the cart broke down.
+ */
+export async function closeEmptyShift(shiftId: string, reason: string): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("shift.close");
+    const shift = await ctx.db.cartShift.findUnique({
+      where: { id: shiftId },
+      include: { issues: true },
+    });
+    if (!shift) return { ok: false, error: "That shift no longer exists." };
+    assertScope(ctx.user, shift.branchId);
+
+    if (shift.status !== "OPEN") return { ok: false, error: "This shift is already closed." };
+    if (shift.issues.length > 0) {
+      return { ok: false, error: "Stock was issued on this shift — use the closing count instead." };
+    }
+    if (!reason.trim()) return { ok: false, error: "Say why the cart did not trade." };
+
+    const after = await ctx.db.cartShift.update({
+      where: { id: shiftId },
+      data: {
+        status: "CLOSED",
+        closedAt: new Date(),
+        closedById: ctx.user.id,
+        notes: reason.trim(),
+      },
+    });
+
+    // No stock moved and nothing was sold, so there is nothing to post to the ledger.
+    await computeShiftCompensation(ctx.db, shiftId);
+    await audit(ctx, "UPDATE", "CartShift", shiftId, shift, after);
+    refresh("/shifts", `/shifts/${shiftId}`, "/dashboard");
+    return { ok: true, message: "Closed with no trade recorded." };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Issue supplies — sauce, cups, bags, sticks, oil — to a cart.
+ *
+ * These are ingredients, not products: their cost is already inside each product's
+ * per-stick cost (spec §5.3), so issuing them moves stock for traceability WITHOUT
+ * charging the shift a second time. They are therefore posted branch → cart rather
+ * than to the vendor, and the closing count never touches them.
+ */
+export async function issueSupplies(
+  shiftId: string,
+  items: { ingredientId: string; qty: string }[],
+): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("shift.open");
+    const wanted = items.filter((i) => dec(i.qty || "0").greaterThan(0));
+    if (wanted.length === 0) return { ok: false, error: "Nothing to issue — every quantity is zero." };
+
+    const shift = await ctx.db.cartShift.findUnique({ where: { id: shiftId } });
+    if (!shift) return { ok: false, error: "That shift no longer exists." };
+    if (shift.status === "APPROVED") return { ok: false, error: "This shift is approved and locked." };
+    assertScope(ctx.user, shift.branchId);
+
+    const ingredients = await ctx.db.ingredient.findMany({
+      where: { id: { in: wanted.map((w) => w.ingredientId) } },
+    });
+
+    const entries: LedgerEntry[] = [];
+    for (const item of wanted) {
+      const ingredient = ingredients.find((i) => i.id === item.ingredientId);
+      if (!ingredient) continue;
+      const unitCost = ingredient.currentCostPerBaseUnit.toFixed(4);
+
+      entries.push({
+        itemType: "INGREDIENT", itemId: ingredient.id,
+        locationType: "BRANCH", locationId: shift.branchId,
+        qty: dec(item.qty).negated().toFixed(4), unitCost,
+        type: "TRANSFER_OUT", refType: "CartShift", refId: shiftId,
+        businessDate: shift.businessDate, reason: "Cart supplies issued",
+      });
+      entries.push({
+        itemType: "INGREDIENT", itemId: ingredient.id,
+        locationType: "CART", locationId: shift.cartId,
+        qty: dec(item.qty).toFixed(4), unitCost,
+        type: "TRANSFER_IN", refType: "CartShift", refId: shiftId,
+        businessDate: shift.businessDate, reason: "Cart supplies issued",
+      });
+    }
+
+    await postLedger(ctx.db, entries, ctx.user.id);
+    await audit(ctx, "CREATE", "CartSupplies", shiftId, null, { items: wanted });
+    refresh("/shifts", `/shifts/${shiftId}`, "/inventory");
+
+    return {
+      ok: true,
+      message: `${wanted.length} suppl${wanted.length === 1 ? "y" : "ies"} issued to the cart. Their cost is already inside each product, so nothing is charged twice.`,
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}

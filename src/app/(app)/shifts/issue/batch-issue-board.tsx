@@ -18,7 +18,7 @@ type CartRow = {
   defaults: Record<string, string>;
 };
 
-type Product = { id: string; name: string; piecesPerStick: string };
+type Product = { id: string; name: string; piecesPerStick: string; inSet: boolean };
 
 /**
  * One screen, every cart. Each row opens the shift if needed and issues in one tap,
@@ -33,6 +33,12 @@ export function BatchIssueBoard({ carts, products }: { carts: CartRow[]; product
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, { ok: boolean; text: string }>>({});
+  // The five set products carry the incentive and go out every day, so they lead. Drinks,
+  // fries and the rest are one tap away rather than crowding the grid.
+  const [showOthers, setShowOthers] = useState<Record<string, boolean>>({});
+
+  const setProducts = products.filter((p) => p.inSet);
+  const otherProducts = products.filter((p) => !p.inSet);
 
   function setQty(cartId: string, productId: string, value: string) {
     setQuantities((prev) => ({ ...prev, [cartId]: { ...prev[cartId], [productId]: value } }));
@@ -104,7 +110,7 @@ export function BatchIssueBoard({ carts, products }: { carts: CartRow[]; product
               </div>
 
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-                {products.map((product) => {
+                {(showOthers[cart.cartId] ? products : setProducts).map((product) => {
                   const value = row[product.id] ?? "";
                   const sticks = Number(value) / Number(product.piecesPerStick);
                   return (
@@ -132,6 +138,20 @@ export function BatchIssueBoard({ carts, products }: { carts: CartRow[]; product
                   );
                 })}
               </div>
+
+              {otherProducts.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowOthers((prev) => ({ ...prev, [cart.cartId]: !prev[cart.cartId] }))
+                  }
+                  className="text-xs font-medium text-brand-700 hover:underline"
+                >
+                  {showOthers[cart.cartId]
+                    ? "Show only set products"
+                    : `+ ${otherProducts.length} more products (drinks, fries…)`}
+                </button>
+              ) : null}
 
               {outcome ? (
                 <p className={`rounded-md px-3 py-2 text-sm ${outcome.ok ? "bg-emerald-50 text-emerald-900" : "bg-red-50 text-red-800"}`}>
