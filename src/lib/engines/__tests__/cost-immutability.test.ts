@@ -92,6 +92,17 @@ describe.skipIf(!hasDb)("cost immutability (live database)", () => {
     expect(asOfYesterday?.costPerStick).toBe(yesterdayCost);
   });
 
+  it("finds a cost written during the business date being costed", async () => {
+    // Regression: business dates are midnight and cost versions are timestamped, so an
+    // `effectiveFrom <= businessDate` comparison found nothing for today and shifts
+    // closed with zero COGS — reporting gross profit equal to net sales.
+    const midnightToday = new Date();
+    midnightToday.setUTCHours(0, 0, 0, 0);
+    const found = await costAsOf(db, productId, midnightToday);
+    expect(found).not.toBeNull();
+    expect(Number(found!.costPerPiece)).toBeGreaterThan(0);
+  });
+
   it("reports the higher cost as of today", async () => {
     const today = await costAsOf(db, productId, new Date());
     expect(Number(today?.costPerStick)).toBeGreaterThan(Number(yesterdayCost));

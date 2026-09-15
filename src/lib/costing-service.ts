@@ -191,8 +191,17 @@ export async function costAsOf(
   productId: string,
   businessDate: Date,
 ): Promise<{ costPerPiece: string; costPerStick: string } | null> {
+  /**
+   * A business date is midnight; a cost version is stamped with the moment it was
+   * written. Comparing them directly would exclude every cost created during the day
+   * being costed — which silently produced zero COGS. Take everything in force by the
+   * END of that business date instead.
+   */
+  const endOfBusinessDate = new Date(businessDate);
+  endOfBusinessDate.setUTCDate(endOfBusinessDate.getUTCDate() + 1);
+
   const version = await db.productCostVersion.findFirst({
-    where: { productId, effectiveFrom: { lte: businessDate } },
+    where: { productId, effectiveFrom: { lt: endOfBusinessDate } },
     orderBy: { effectiveFrom: "desc" },
   });
   if (!version) return null;

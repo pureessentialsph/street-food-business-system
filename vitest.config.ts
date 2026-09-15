@@ -14,6 +14,10 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/__tests__/**/*.test.ts"],
     testTimeout: 30_000,
+    // The database-backed suites share one dev database and assert on global state
+    // (every cached balance equals its ledger sum). Running files in parallel makes
+    // them see each other's half-written fixtures.
+    fileParallelism: false,
   },
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },

@@ -84,6 +84,11 @@ model Company {
   productionBatches   ProductionBatch[]
   physicalCounts      PhysicalCount[]
   physicalCountLines  PhysicalCountLine[]
+  cartShifts          CartShift[]
+  shiftIssues         ShiftIssue[]
+  shiftIssueLines     ShiftIssueLine[]
+  shiftLines          ShiftLine[]
+  targets             Target[]
 }
 
 model Branch {
@@ -942,4 +947,187 @@ model PhysicalCountLine {
 
   @@unique([countId, itemType, itemId])
   @@index([companyId, itemId])
+}
+
+// ===========================================================================
+// PHASE 4 — SHIFTS (THE CORE LOOP)
+//
+// Street-food carts do not ring up transactions. The whole system derives sales,
+// COGS, wastage, cash accountability and vendor pay from ONE reconciliation record
+// per cart per business date (spec §2).
+//
+//   issue → refill → count back → qtySold = issued − returned − wasted
+// ===========================================================================
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+  APPROVED
+  DISPUTED
+}
+
+enum AcknowledgedVia {
+  SIGNATURE
+  VERBAL_CONFIRMED
+  SMS_SENT
+  NONE
+}
+
+enum TargetScope {
+  COMPANY
+  BRANCH
+  CART
+  EMPLOYEE
+}
+
+enum TargetPeriod {
+  DAY
+  WEEK
+  MONTH
+}
+
+model CartShift {
+  id           String      @id @default(cuid())
+  companyId    String
+  cartId       String
+  employeeId   String
+  branchId     String
+  businessDate DateTime    @db.Date
+  status       ShiftStatus @default(OPEN)
+
+  openedAt     DateTime  @default(now())
+  openedById   String?
+  closedAt     DateTime?
+  closedById   String?
+  /// Segregation of duties: never equal to closedById (spec §7).
+  approvedAt   DateTime?
+  approvedById String?
+
+  /// No pay deduction without the vendor acknowledging the count (spec §7).
+  vendorAcknowledged Boolean         @default(false)
+  acknowledgedAt     DateTime?
+  acknowledgedVia    AcknowledgedVia @default(NONE)
+  acknowledgedNote   String?
+  signatureKey       String?
+
+  cashFloat     Decimal @default(0) @db.Decimal(14, 4)
+  cashRemitted  Decimal @default(0) @db.Decimal(14, 4)
+  digitalSales  Decimal @default(0) @db.Decimal(14, 4)
+  otherPayments Decimal @default(0) @db.Decimal(14, 4)
+
+  grossSales    Decimal @default(0) @db.Decimal(14, 4)
+  discountTotal Decimal @default(0) @db.Decimal(14, 4)
+  netSales      Decimal @default(0) @db.Decimal(14, 4)
+  expectedCash  Decimal @default(0) @db.Decimal(14, 4)
+  cashVariance  Decimal @default(0) @db.Decimal(14, 4)
+  cogs          Decimal @default(0) @db.Decimal(14, 4)
+  wasteCost     Decimal @default(0) @db.Decimal(14, 4)
+  grossProfit   Decimal @default(0) @db.Decimal(14, 4)
+
+  notes          String?
+  /// Makes closing safe to retry from a phone on bad signal, and offline later.
+  idempotencyKey String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  issues  ShiftIssue[]
+  lines   ShiftLine[]
+
+  @@unique([cartId, businessDate])
+  @@index([companyId, businessDate, status])
+  @@index([companyId, employeeId, businessDate])
+}
+
+model ShiftIssue {
+  id         String   @id @default(cuid())
+  companyId  String
+  shiftId    String
+  /// 1 = the morning load-out; 2+ = a refill during the day.
+  seq        Int
+  isRefill   Boolean  @default(false)
+  issuedAt   DateTime @default(now())
+  issuedById String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  company Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  shift   CartShift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  lines   ShiftIssueLine[]
+
+  @@unique([shiftId, seq])
+  @@index([companyId, shiftId])
+}
+
+model ShiftIssueLine {
+  id               String   @id @default(cuid())
+  companyId        String
+  issueId          String
+  productId        String
+  /// Pieces. Sticks are commercial, never a stock quantity (spec §5.3.1).
+  qtyPieces        Decimal  @db.Decimal(14, 4)
+  /// Snapshotted at issue so later price or cost changes cannot rewrite this shift.
+  unitCostPerPiece Decimal  @db.Decimal(14, 4)
+  pricePerStick    Decimal  @db.Decimal(14, 4)
+  piecesPerStick   Decimal  @db.Decimal(14, 4)
+  createdAt        DateTime @default(now())
+
+  company Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  issue   ShiftIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, productId])
+  @@index([companyId, productId])
+}
+
+/// One row per product per shift, built at closing. ALL QUANTITIES IN PIECES.
+model ShiftLine {
+  id             String  @id @default(cuid())
+  companyId      String
+  shiftId        String
+  productId      String
+  piecesIssued   Decimal @db.Decimal(14, 4)
+  piecesReturned Decimal @default(0) @db.Decimal(14, 4)
+  piecesWasted   Decimal @default(0) @db.Decimal(14, 4)
+  wasteReason    String?
+  piecesSold     Decimal @db.Decimal(14, 4)
+  sticksSold     Decimal @db.Decimal(14, 4)
+
+  piecesPerStick   Decimal @db.Decimal(14, 4)
+  pricePerStick    Decimal @db.Decimal(14, 4)
+  unitCostPerPiece Decimal @db.Decimal(14, 4)
+
+  discountAmount Decimal @default(0) @db.Decimal(14, 4)
+  grossSales     Decimal @db.Decimal(14, 4)
+  netSales       Decimal @db.Decimal(14, 4)
+  lineCogs       Decimal @db.Decimal(14, 4)
+  lineWasteCost  Decimal @default(0) @db.Decimal(14, 4)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  shift   CartShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, productId])
+  @@index([companyId, productId])
+}
+
+model Target {
+  id          String       @id @default(cuid())
+  companyId   String
+  scopeType   TargetScope
+  scopeId     String?
+  metric      String       @default("NET_SALES")
+  periodType  TargetPeriod @default(DAY)
+  periodStart DateTime     @db.Date
+  value       Decimal      @db.Decimal(14, 4)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, scopeType, scopeId, metric, periodType, periodStart])
+  @@index([companyId, periodStart])
 }
