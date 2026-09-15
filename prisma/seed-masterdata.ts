@@ -108,6 +108,23 @@ export async function seedMasterData(db: Db, companyId: string) {
   const scheme = { id: schemeIds.get("Daily Rate + Set Incentive")! };
   const flatScheme = { id: schemeIds.get("Daily Rate")! };
 
+  // Rules are data (spec §5.6). The vendor scheme pays per-component set credits; the
+  // flat scheme pays base only, so it carries no incentive rules at all.
+  const existingRule = await db.compensationRule.findFirst({
+    where: { companyId, schemeId: scheme.id, type: "SET_COMPLETION" },
+  });
+  if (!existingRule) {
+    await db.compensationRule.create({
+      data: {
+        ...co,
+        schemeId: scheme.id,
+        type: "SET_COMPLETION",
+        priority: 10,
+        params: { requireZeroShortage: false },
+      },
+    });
+  }
+
   // ---------------------------------------------------------------- suppliers
   const suppliers = [
     { name: "Divisoria Poultry Supply", contactPerson: "Aling Nena", mobile: "0917 555 0101", leadTimeDays: 1, paymentTerms: "COD" },

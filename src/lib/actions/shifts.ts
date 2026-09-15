@@ -7,6 +7,7 @@ import { costAsOf } from "@/lib/costing-service";
 import { postLedger, type LedgerEntry } from "@/lib/inventory-service";
 import { reconcileShift, validateClosing, type ReconciliationLineInput } from "@/lib/engines/reconciliation";
 import { assertCanApproveShift, assertScope } from "@/lib/rbac";
+import { computeShiftCompensation } from "@/lib/payroll-service";
 import { audit, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 /**
@@ -364,11 +365,35 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
       }
     }
 
-    // Re-closing must not double-count: drop the previous postings first.
-    await ctx.db.inventoryTransaction.deleteMany({
-      where: { refType: "CartShift", refId: shiftId },
+    /**
+     * Re-closing must not double-count. Deleting the previous rows would be wrong twice
+     * over: the ledger is append-only (spec §3 rule 3), and a raw delete bypasses the
+     * balance cache, leaving stock overstated by whatever the first count said. So the
+     * earlier postings are REVERSED with opposite entries, and the new count is posted
+     * on top. The history then shows both counts and the correction between them.
+     */
+    const previous = await ctx.db.inventoryTransaction.findMany({
+      where: { refType: "CartShift", refId: shiftId, type: { not: "ADJUSTMENT" } },
     });
-    await postLedger(ctx.db, entries, ctx.user.id);
+    const reversals: LedgerEntry[] = previous.map((row) => ({
+      itemType: row.itemType,
+      itemId: row.itemId,
+      locationType: row.locationType,
+      locationId: row.locationId,
+      qty: dec(row.qty).negated().toFixed(4),
+      unitCost: row.unitCost.toFixed(4),
+      type: "ADJUSTMENT",
+      refType: "CartShift",
+      refId: shiftId,
+      businessDate: shift.businessDate,
+      reason: `Reversing the previous count (${row.type.toLowerCase().replace(/_/g, " ")})`,
+    }));
+
+    await postLedger(ctx.db, [...reversals, ...entries], ctx.user.id);
+
+    // Pay falls out of the same count — nobody keys it in separately (spec §8).
+    const pay = await computeShiftCompensation(ctx.db, shiftId);
+
     await audit(ctx, "UPDATE", "CartShift", shiftId, shift, { status: result.isDisputed ? "DISPUTED" : "CLOSED" });
 
     refresh("/shifts", `/shifts/${shiftId}`, "/inventory", "/dashboard");
@@ -381,7 +406,7 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
         ? `Closed and flagged DISPUTED: cash is ₱${variance.abs().toFixed(2)} ${variance.isNegative() ? "short" : "over"}. Payroll is blocked until it is resolved.`
         : `Closed. ${result.piecesSold.toFixed(0)} pieces sold, ₱${result.netSales.toFixed(2)} net${
             variance.isZero() ? ", cash exact" : `, cash ₱${variance.abs().toFixed(2)} ${variance.isNegative() ? "short" : "over"}`
-          }.`,
+          }.${pay ? ` Vendor pay ₱${pay.netPay}${pay.shortageSuppressed ? " — shortage not deducted without acknowledgment" : ""}.` : ""}`,
     };
   } catch (error) {
     return toActionError(error);

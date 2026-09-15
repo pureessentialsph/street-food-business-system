@@ -89,6 +89,11 @@ model Company {
   shiftIssueLines     ShiftIssueLine[]
   shiftLines          ShiftLine[]
   targets             Target[]
+  compensationRules   CompensationRule[]
+  shiftCompensations  ShiftCompensation[]
+  deductions          Deduction[]
+  payrollRuns         PayrollRun[]
+  payrollItems        PayrollItem[]
 }
 
 model Branch {
@@ -338,8 +343,9 @@ model CompensationScheme {
   updatedAt            DateTime @updatedAt
   createdById          String?
 
-  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   employees Employee[]
+  rules     CompensationRule[]
 
   @@unique([companyId, name])
   @@index([companyId, isActive])
@@ -1130,4 +1136,160 @@ model Target {
 
   @@unique([companyId, scopeType, scopeId, metric, periodType, periodStart])
   @@index([companyId, periodStart])
+}
+
+// ===========================================================================
+// PHASE 5 — COMPENSATION AND PAYROLL
+//
+// Rules are DATA, not code (spec §5.6). Management edits them in Settings; adding a
+// new rule TYPE is the only thing that needs a deploy. Approved payroll snapshots its
+// full breakdown, so editing a rule next month cannot rewrite what was already paid.
+// ===========================================================================
+
+enum CompensationRuleType {
+  SET_COMPLETION
+  REFILL_BONUS
+  COMMISSION_PCT
+  PER_UNIT
+  TARGET_BONUS
+  ATTENDANCE
+}
+
+enum PayStatus {
+  DRAFT
+  APPROVED
+  PAID
+}
+
+enum DeductionType {
+  CASH_SHORTAGE
+  CASH_ADVANCE
+  UNRETURNED_ITEM
+  DAMAGE
+  OTHER
+}
+
+enum PayrollStatus {
+  DRAFT
+  REVIEWED
+  APPROVED
+  PAID
+}
+
+model CompensationRule {
+  id              String               @id @default(cuid())
+  companyId       String
+  schemeId        String
+  type            CompensationRuleType
+  /// Lower runs first. Only matters when one rule depends on another's result.
+  priority        Int                  @default(10)
+  /// Shape depends on `type` — see the table in spec §5.6.
+  params          Json                 @default("{}")
+  scopeProductId  String?
+  scopeCategoryId String?
+  isActive        Boolean              @default(true)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  createdById     String?
+
+  company Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  scheme  CompensationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, schemeId, isActive])
+}
+
+/// What one shift earned the vendor, with the arithmetic kept alongside the figure.
+model ShiftCompensation {
+  id             String    @id @default(cuid())
+  companyId      String
+  shiftId        String    @unique
+  employeeId     String
+  schemeId       String?
+  businessDate   DateTime  @db.Date
+  basePay        Decimal   @db.Decimal(14, 4)
+  incentiveTotal Decimal   @db.Decimal(14, 4)
+  deductionTotal Decimal   @db.Decimal(14, 4)
+  netPay         Decimal   @db.Decimal(14, 4)
+  /// Every line: rule type, label, the computation in words, and the amount.
+  breakdown      Json
+  status         PayStatus @default(DRAFT)
+  payrollItemId  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, employeeId, businessDate])
+  @@index([companyId, status])
+}
+
+model Deduction {
+  id            String        @id @default(cuid())
+  companyId     String
+  employeeId    String
+  shiftId       String?
+  payrollItemId String?
+  type          DeductionType
+  amount        Decimal       @db.Decimal(14, 4)
+  note          String?
+  /// A deduction the vendor never acknowledged is how these systems get abandoned.
+  acknowledged  Boolean       @default(false)
+  approvedById  String?
+  businessDate  DateTime      @db.Date
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  createdById   String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, employeeId, businessDate])
+}
+
+model PayrollRun {
+  id           String        @id @default(cuid())
+  companyId    String
+  reference    String
+  periodStart  DateTime      @db.Date
+  periodEnd    DateTime      @db.Date
+  branchId     String?
+  status       PayrollStatus @default(DRAFT)
+  totals       Json          @default("{}")
+  reviewedAt   DateTime?
+  reviewedById String?
+  approvedAt   DateTime?
+  approvedById String?
+  paidAt       DateTime?
+  paidById     String?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  createdById  String?
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   PayrollItem[]
+
+  @@unique([companyId, reference])
+  @@index([companyId, status, periodStart])
+}
+
+model PayrollItem {
+  id             String   @id @default(cuid())
+  companyId      String
+  payrollRunId   String
+  employeeId     String
+  daysWorked     Int      @default(0)
+  basePayTotal   Decimal  @db.Decimal(14, 4)
+  incentiveTotal Decimal  @db.Decimal(14, 4)
+  deductionTotal Decimal  @db.Decimal(14, 4)
+  netPay         Decimal  @db.Decimal(14, 4)
+  /// Snapshotted on approval so later rule edits cannot rewrite history.
+  breakdown      Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  run     PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+
+  @@unique([payrollRunId, employeeId])
+  @@index([companyId, employeeId])
 }
