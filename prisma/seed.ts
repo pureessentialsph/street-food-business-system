@@ -7,7 +7,7 @@
  */
 import { PrismaClient, type Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { seedMasterData } from "./seed-masterdata";
+import { seedExpenseCategories, seedMasterData } from "./seed-masterdata";
 import { seedRecipes } from "./seed-recipes";
 import { recomputeAll } from "../src/lib/costing-service";
 import { scopedDb } from "../src/lib/db";
@@ -163,6 +163,9 @@ async function main() {
       `${counts.ingredients} ingredients, ${counts.products} products, ` +
       `${counts.carts} carts, ${counts.employees} employees.`,
   );
+
+  const expenseCategories = await seedExpenseCategories(db, primary.id);
+  console.log(`Expenses: ${expenseCategories} categories.`);
 
   // Recipes, then one cost snapshot per product so margins are visible immediately.
   const recipeCount = await seedRecipes(db, primary.id);

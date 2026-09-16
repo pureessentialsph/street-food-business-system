@@ -132,7 +132,7 @@ export const NAV: NavItem[] = [
   { href: "/employees", label: "Employees", permission: "employee.read" },
   { href: "/payroll", label: "Payroll", permission: "payroll.run" },
   { href: "/expenses", label: "Expenses", permission: "expense.write" },
-  { href: "/reports", label: "Reports", permission: "reports.read" },
+  { href: "/reports", label: "P&L", permission: "reports.read" },
   { href: "/settings", label: "Settings", permission: "company.manage" },
 ];
 

@@ -436,3 +436,31 @@ export async function seedMasterData(db: Db, companyId: string) {
     employees: staff.length,
   };
 }
+
+/** Expense categories a street-food operation actually uses (spec §2 problem 2). */
+export async function seedExpenseCategories(db: Db, companyId: string): Promise<number> {
+  const co = { companyId };
+  const categories = [
+    { name: "LPG / gas", kind: "OPEX" as const, isOverhead: false, sortOrder: 1 },
+    { name: "Transport & delivery", kind: "OPEX" as const, isOverhead: false, sortOrder: 2 },
+    { name: "Cart maintenance", kind: "OPEX" as const, isOverhead: false, sortOrder: 3 },
+    { name: "Equipment repair", kind: "OPEX" as const, isOverhead: false, sortOrder: 4 },
+    { name: "Stall rent", kind: "OPEX" as const, isOverhead: false, sortOrder: 5 },
+    { name: "Electricity", kind: "OPEX" as const, isOverhead: false, sortOrder: 6 },
+    { name: "Water", kind: "OPEX" as const, isOverhead: false, sortOrder: 7 },
+    { name: "Permits & licences", kind: "OPEX" as const, isOverhead: true, sortOrder: 8 },
+    { name: "Office & admin", kind: "OPEX" as const, isOverhead: true, sortOrder: 9 },
+    { name: "Marketing", kind: "OPEX" as const, isOverhead: true, sortOrder: 10 },
+    { name: "Miscellaneous", kind: "OPEX" as const, isOverhead: false, sortOrder: 11 },
+    { name: "New cart / equipment", kind: "CAPEX" as const, isOverhead: false, sortOrder: 12 },
+  ];
+
+  for (const category of categories) {
+    await db.expenseCategory.upsert({
+      where: { companyId_name: { companyId, name: category.name } },
+      update: { kind: category.kind, isOverhead: category.isOverhead, sortOrder: category.sortOrder },
+      create: { ...co, ...category },
+    });
+  }
+  return categories.length;
+}

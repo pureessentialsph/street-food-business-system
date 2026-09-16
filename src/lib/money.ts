@@ -35,7 +35,8 @@ export function qty(value: Numeric, places = 4): Decimal {
 /** `₱1,234.56` — the only money format in the UI (spec §13). */
 export function formatPHP(value: Numeric): string {
   const d = money(value);
-  const negative = d.isNegative();
+  // Decimal keeps the sign on negated zero, which would render as "-₱0.00".
+  const negative = d.isNegative() && !d.isZero();
   const [whole = "0", frac = "00"] = d.abs().toFixed(2).split(".");
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${negative ? "-" : ""}₱${grouped}.${frac}`;

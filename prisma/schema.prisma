@@ -95,6 +95,9 @@ model Company {
   payrollRuns         PayrollRun[]
   payrollItems        PayrollItem[]
   shiftSupplies       ShiftSupply[]
+  expenseCategories   ExpenseCategory[]
+  expenses            Expense[]
+  recurringExpenses   RecurringExpense[]
 }
 
 model Branch {
@@ -1322,4 +1325,114 @@ model ShiftSupply {
 
   @@unique([shiftId, ingredientId])
   @@index([companyId, ingredientId])
+}
+
+// ===========================================================================
+// PHASE 6 — EXPENSES AND P&L
+//
+// Everything between gross profit and what the owner actually keeps (spec §10):
+//   Net Sales − COGS = Gross Profit
+//     − Labour − Wastage − Direct Operating Expenses = Operating Profit
+//     − Allocated Overhead (optional) = Net Profit
+// ===========================================================================
+
+enum ExpenseKind {
+  COGS
+  OPEX
+  CAPEX
+}
+
+enum ExpenseScope {
+  COMPANY
+  BRANCH
+  CART
+}
+
+enum PaymentMethod {
+  CASH
+  GCASH
+  BANK
+  CREDIT
+}
+
+enum ExpenseStatus {
+  DRAFT
+  APPROVED
+  REJECTED
+}
+
+enum RecurringFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model ExpenseCategory {
+  id          String      @id @default(cuid())
+  companyId   String
+  name        String
+  kind        ExpenseKind @default(OPEX)
+  /// Company-level costs can be spread across branches by share of sales.
+  isOverhead  Boolean     @default(false)
+  sortOrder   Int         @default(0)
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  createdById String?
+
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  expenses  Expense[]
+  recurring RecurringExpense[]
+
+  @@unique([companyId, name])
+  @@index([companyId, kind, isActive])
+}
+
+model Expense {
+  id            String        @id @default(cuid())
+  companyId     String
+  businessDate  DateTime      @db.Date
+  categoryId    String
+  scopeType     ExpenseScope  @default(BRANCH)
+  scopeId       String?
+  employeeId    String?
+  amount        Decimal       @db.Decimal(14, 4)
+  paymentMethod PaymentMethod @default(CASH)
+  description   String
+  /// Reference to the receipt. File storage arrives with the 201 files in Phase 9.
+  attachmentKey String?
+  status        ExpenseStatus @default(DRAFT)
+  approvedAt    DateTime?
+  approvedById  String?
+  recurringId   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  createdById   String?
+
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, businessDate, status])
+  @@index([companyId, scopeType, scopeId])
+}
+
+model RecurringExpense {
+  id          String             @id @default(cuid())
+  companyId   String
+  categoryId  String
+  scopeType   ExpenseScope       @default(BRANCH)
+  scopeId     String?
+  amount      Decimal            @db.Decimal(14, 4)
+  description String
+  frequency   RecurringFrequency @default(MONTHLY)
+  nextRunDate DateTime           @db.Date
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  createdById String?
+
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, isActive, nextRunDate])
 }

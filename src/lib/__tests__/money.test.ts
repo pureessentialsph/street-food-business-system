@@ -14,6 +14,8 @@ describe("money", () => {
     expect(formatPHP(0)).toBe("₱0.00");
     expect(formatPHP("-5")).toBe("-₱5.00");
     expect(formatPHP("1234567.891")).toBe("₱1,234,567.89");
+    // A negated zero must not render as "-₱0.00" on a P&L line.
+    expect(formatPHP(dec(0).negated())).toBe("₱0.00");
   });
 
   it("returns null instead of Infinity when dividing by zero", () => {
