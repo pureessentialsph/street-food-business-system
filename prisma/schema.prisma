@@ -101,6 +101,9 @@ model Company {
   purchaseOrders      PurchaseOrder[]
   purchaseOrderLines  PurchaseOrderLine[]
   replenishment       ReplenishmentSuggestion[]
+  employeeDocuments   EmployeeDocument[]
+  cashCounts          CashCount[]
+  shiftAdjustments    ShiftAdjustment[]
 }
 
 model Branch {
@@ -395,6 +398,7 @@ model Employee {
   cartsDefaulted     Cart[]              @relation("CartDefaultVendor")
   events             EmploymentEvent[]
   logins             User[]
+  documents          EmployeeDocument[]
 
   @@unique([companyId, employeeNo])
   @@index([companyId, isActive])
@@ -1533,4 +1537,85 @@ model ReplenishmentSuggestion {
 
   @@unique([companyId, itemType, itemId, locationType, locationId, status])
   @@index([companyId, status, generatedAt])
+}
+
+// ===========================================================================
+// PHASE 9 — 201 FILES, CASH COUNTS, ADJUSTMENTS
+// ===========================================================================
+
+enum DocumentType {
+  CONTRACT
+  ID
+  CLEARANCE
+  HEALTH_CERT
+  TRAINING
+  PERFORMANCE
+  DISCIPLINARY
+  GOVT_RECORD
+  OTHER
+}
+
+/**
+ * An employee's 201 file (spec §6). Access is restricted to OWNER, ADMIN and HR, and
+ * every view is written to the audit log.
+ * `fileRef` is where the document actually lives — a cloud link or the physical folder
+ * reference. Binary upload needs object storage, which this deployment does not have;
+ * the expiry tracking and the central index are the parts that stop a lapsed health
+ * certificate going unnoticed, and those work without it.
+ */
+model EmployeeDocument {
+  id           String       @id @default(cuid())
+  companyId    String
+  employeeId   String
+  type         DocumentType
+  title        String
+  fileRef      String?
+  issuedAt     DateTime?    @db.Date
+  expiresAt    DateTime?    @db.Date
+  notes        String?
+  uploadedById String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, employeeId])
+  @@index([companyId, expiresAt])
+}
+
+/// Optional denomination count at closing, for branches that want the cash broken down.
+model CashCount {
+  id           String   @id @default(cuid())
+  companyId    String
+  shiftId      String
+  denomination Int
+  count        Int
+  createdAt    DateTime @default(now())
+  createdById  String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, denomination])
+  @@index([companyId, shiftId])
+}
+
+/**
+ * A correction to an APPROVED shift. Approved shifts are immutable (spec §7), so a
+ * correction is a recorded adjustment with reversing ledger entries — never an edit.
+ */
+model ShiftAdjustment {
+  id          String   @id @default(cuid())
+  companyId   String
+  shiftId     String
+  reason      String
+  /// What the shift said before, kept so the change is legible years later.
+  before      Json
+  after       Json
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, shiftId])
 }

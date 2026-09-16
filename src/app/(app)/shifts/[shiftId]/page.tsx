@@ -10,6 +10,7 @@ import { formatBusinessDate, fromDateColumn } from "@/lib/businessDate";
 import { CartLoad, type LoadRow } from "./cart-load";
 import { ClosingGrid } from "./closing-grid";
 import { EmptyShiftActions } from "./empty-shift-actions";
+import { ReopenForm } from "./reopen-form";
 import { SuppliesForm } from "./supplies-form";
 import { IssueForm } from "./issue-form";
 import { ActionButton } from "@/components/action-button";
@@ -334,8 +335,11 @@ export default async function ShiftPage({
       ) : null}
 
       {shift.status === "APPROVED" ? (
-        <div className="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          Approved and locked. Corrections now need a reversing adjustment, not an edit.
+        <div className="space-y-3">
+          <div className="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            Approved and locked. Corrections are recorded adjustments, never edits.
+          </div>
+          {can(user, "company.manage") ? <ReopenForm shiftId={shift.id} /> : null}
         </div>
       ) : null}
     </div>

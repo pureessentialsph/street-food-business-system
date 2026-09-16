@@ -91,7 +91,16 @@ export default async function EmployeeScorecardPage({
       <PageHeader
         title={`${employee.firstName} ${employee.lastName} — scorecard`}
         subtitle={`${employee.employeeNo} · ${employee.position} · ${employee.branch?.code ?? "no branch"} · last 14 days`}
-        action={<Link href="/employees" className="text-sm font-medium text-brand-700 hover:underline">← All employees</Link>}
+        action={
+          <div className="flex gap-3 text-sm">
+            <Link href="/employees" className="font-medium text-brand-700 hover:underline">← All employees</Link>
+            {can(user, "employee.documents") ? (
+              <Link href={`/employees/${employeeId}/documents`} className="font-medium text-brand-700 hover:underline">
+                201 file →
+              </Link>
+            ) : null}
+          </div>
+        }
       />
 
       <div className="flex flex-wrap items-center gap-3 text-sm">

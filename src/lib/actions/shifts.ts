@@ -756,3 +756,115 @@ export async function countSuppliesBack(
     return toActionError(error);
   }
 }
+
+/**
+ * Reopen an APPROVED shift for correction (spec §7).
+ *
+ * Approved shifts are immutable, so this is not an edit: the approval is withdrawn, a
+ * ShiftAdjustment records what the numbers said and why they are being changed, and the
+ * shift returns to CLOSED so it can be recounted — which posts reversing ledger entries
+ * of its own. Owner and admin only, because it moves money that has already been signed
+ * off and possibly paid.
+ */
+export async function reopenShift(shiftId: string, reason: string): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("company.manage");
+    if (!reason.trim() || reason.trim().length < 10) {
+      return { ok: false, error: "Explain the correction in a sentence — this is the permanent record of why." };
+    }
+
+    const shift = await ctx.db.cartShift.findUnique({ where: { id: shiftId } });
+    if (!shift) return { ok: false, error: "That shift no longer exists." };
+    if (shift.status !== "APPROVED") {
+      return { ok: false, error: "Only an approved shift needs reopening. This one can still be re-counted directly." };
+    }
+
+    const paid = await ctx.db.shiftCompensation.findFirst({
+      where: { shiftId, status: "PAID" },
+    });
+    if (paid) {
+      return {
+        ok: false,
+        error: "This shift has already been paid. Correct it with a deduction or an extra payment on the next payroll run instead of rewriting history.",
+      };
+    }
+
+    const before = {
+      status: shift.status,
+      netSales: shift.netSales.toString(),
+      cashVariance: shift.cashVariance.toString(),
+      cogs: shift.cogs.toString(),
+      grossProfit: shift.grossProfit.toString(),
+      approvedById: shift.approvedById,
+      approvedAt: shift.approvedAt?.toISOString() ?? null,
+    };
+
+    const after = await ctx.db.cartShift.update({
+      where: { id: shiftId },
+      data: { status: "CLOSED", approvedAt: null, approvedById: null },
+    });
+
+    await ctx.db.shiftAdjustment.create({
+      data: {
+        companyId: ctx.db.$companyId,
+        shiftId,
+        reason: reason.trim(),
+        before,
+        after: { status: after.status, reopenedBy: ctx.user.name },
+        createdById: ctx.user.id,
+      },
+    });
+
+    await audit(ctx, "UPDATE", "CartShift", shiftId, shift, after);
+    refresh("/shifts", `/shifts/${shiftId}`, "/payroll", "/reports");
+    return {
+      ok: true,
+      message: "Reopened for correction. Re-count it, and the previous stock postings will be reversed.",
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/** Optional denomination breakdown of the cash handed over (spec §5.5). */
+export async function saveCashCount(
+  shiftId: string,
+  counts: { denomination: number; count: number }[],
+): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("shift.close");
+    const shift = await ctx.db.cartShift.findUnique({ where: { id: shiftId } });
+    if (!shift) return { ok: false, error: "That shift no longer exists." };
+    assertScope(ctx.user, shift.branchId);
+
+    let total = dec(0);
+    for (const entry of counts) {
+      if (entry.count < 0) return { ok: false, error: "Counts cannot be negative." };
+      total = total.plus(dec(entry.denomination).times(entry.count));
+
+      await ctx.db.cashCount.upsert({
+        where: { shiftId_denomination: { shiftId, denomination: entry.denomination } },
+        update: { count: entry.count },
+        create: {
+          companyId: ctx.db.$companyId,
+          shiftId,
+          denomination: entry.denomination,
+          count: entry.count,
+          createdById: ctx.user.id,
+        },
+      });
+    }
+
+    const remitted = dec(shift.cashRemitted);
+    const matches = total.equals(remitted);
+    refresh(`/shifts/${shiftId}`);
+    return {
+      ok: true,
+      message: matches
+        ? `Denominations add to ₱${total.toFixed(2)} — matches the cash recorded.`
+        : `Denominations add to ₱${total.toFixed(2)} but ₱${remitted.toFixed(2)} was recorded as handed over. Recount before approving.`,
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}

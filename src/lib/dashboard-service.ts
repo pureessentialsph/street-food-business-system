@@ -253,6 +253,28 @@ export async function buildDashboard(
     });
   }
 
+  // Expiring 201-file documents (spec §7). A lapsed health certificate is a closure
+  // risk, so it belongs on the owner's first screen rather than in an HR folder.
+  const in30Days = new Date();
+  in30Days.setDate(in30Days.getDate() + 30);
+  const expiringDocs = await db.employeeDocument.findMany({
+    where: { expiresAt: { not: null, lte: in30Days } },
+    orderBy: { expiresAt: "asc" },
+    take: 5,
+  });
+  if (expiringDocs.length > 0) {
+    const now = new Date();
+    const alreadyExpired = expiringDocs.filter((d) => d.expiresAt && d.expiresAt < now).length;
+    alerts.push({
+      tone: alreadyExpired > 0 ? "danger" : "warning",
+      title: alreadyExpired > 0
+        ? `${alreadyExpired} employee document${alreadyExpired === 1 ? " has" : "s have"} expired`
+        : `${expiringDocs.length} employee document${expiringDocs.length === 1 ? "" : "s"} expiring within 30 days`,
+      detail: expiringDocs.map((d) => d.title).join(", "),
+      href: "/employees",
+    });
+  }
+
   const negativeStock = await db.stockBalance.count({ where: { qty: { lt: 0 } } });
   if (negativeStock > 0) {
     alerts.push({

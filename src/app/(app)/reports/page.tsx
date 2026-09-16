@@ -115,6 +115,18 @@ export default async function ReportsPage({
         <button type="submit" className="h-11 rounded-md border border-stone-300 bg-white px-4 text-sm font-medium hover:bg-stone-100">
           Apply
         </button>
+        <a
+          href={`/api/export?kind=pnl&${query}&level=${effectiveScope.level}${"id" in effectiveScope ? `&id=${effectiveScope.id}` : ""}`}
+          className="flex h-11 items-center rounded-md border border-stone-300 bg-white px-4 text-sm font-medium hover:bg-stone-100"
+        >
+          Export P&amp;L
+        </a>
+        <a
+          href={`/api/export?kind=shifts&${query}`}
+          className="flex h-11 items-center rounded-md border border-stone-300 bg-white px-4 text-sm font-medium hover:bg-stone-100"
+        >
+          Export shifts
+        </a>
       </form>
 
       {report.heldShifts > 0 ? (

@@ -21,7 +21,18 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Settings" subtitle="Company configuration. Rules live here as data, never in code." />
+      <PageHeader
+        title="Settings"
+        subtitle="Company configuration. Rules live here as data, never in code."
+        action={
+          <Link
+            href="/settings/audit"
+            className="text-sm font-medium text-brand-700 hover:underline"
+          >
+            Audit log →
+          </Link>
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
