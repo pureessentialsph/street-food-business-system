@@ -588,6 +588,29 @@ export async function issueSupplies(
       if (!ingredient) continue;
       const unitCost = ingredient.currentCostPerBaseUnit.toFixed(4);
 
+      // A line per supply per shift, so the day's load-out reads as one list and the
+      // supervisor can count the leftovers back at closing.
+      const existing = await ctx.db.shiftSupply.findFirst({
+        where: { shiftId, ingredientId: ingredient.id },
+      });
+      if (existing) {
+        await ctx.db.shiftSupply.update({
+          where: { id: existing.id },
+          data: { qtyIssued: dec(existing.qtyIssued).plus(item.qty).toFixed(4), unitCost },
+        });
+      } else {
+        await ctx.db.shiftSupply.create({
+          data: {
+            companyId: ctx.db.$companyId,
+            shiftId,
+            ingredientId: ingredient.id,
+            qtyIssued: dec(item.qty).toFixed(4),
+            unitCost,
+            createdById: ctx.user.id,
+          },
+        });
+      }
+
       entries.push({
         itemType: "INGREDIENT", itemId: ingredient.id,
         locationType: "BRANCH", locationId: shift.branchId,
@@ -611,6 +634,88 @@ export async function issueSupplies(
     return {
       ok: true,
       message: `${wanted.length} suppl${wanted.length === 1 ? "y" : "ies"} issued to the cart. Their cost is already inside each product, so nothing is charged twice.`,
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Count supplies back at closing. What did not come back was consumed, which is how a
+ * cart getting through twice the cups of its neighbour becomes visible.
+ *
+ * Consumption is posted out of the cart so its balance does not grow for ever, but it
+ * is NEVER added to the shift's COGS — that cost is already inside the products sold.
+ */
+export async function countSuppliesBack(
+  shiftId: string,
+  counts: { ingredientId: string; qtyReturned: string }[],
+): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("shift.close");
+    const shift = await ctx.db.cartShift.findUnique({
+      where: { id: shiftId },
+      include: { supplies: true },
+    });
+    if (!shift) return { ok: false, error: "That shift no longer exists." };
+    if (shift.status === "APPROVED") return { ok: false, error: "This shift is approved and locked." };
+    assertScope(ctx.user, shift.branchId);
+
+    const entries: LedgerEntry[] = [];
+    let consumedLines = 0;
+
+    for (const count of counts) {
+      const supply = shift.supplies.find((s) => s.ingredientId === count.ingredientId);
+      if (!supply) continue;
+
+      const returned = dec(count.qtyReturned || "0");
+      if (returned.isNegative()) return { ok: false, error: "Returned quantities cannot be negative." };
+      if (returned.greaterThan(supply.qtyIssued)) {
+        return { ok: false, error: "More came back than went out. Recount, or post an adjustment." };
+      }
+      const consumed = dec(supply.qtyIssued).minus(returned);
+
+      await ctx.db.shiftSupply.update({
+        where: { id: supply.id },
+        data: { qtyReturned: returned.toFixed(4), qtyConsumed: consumed.toFixed(4) },
+      });
+
+      if (returned.greaterThan(0)) {
+        entries.push({
+          itemType: "INGREDIENT", itemId: supply.ingredientId,
+          locationType: "CART", locationId: shift.cartId,
+          qty: returned.negated().toFixed(4), unitCost: supply.unitCost.toFixed(4),
+          type: "TRANSFER_OUT", refType: "CartShift", refId: shiftId,
+          businessDate: shift.businessDate, reason: "Supplies returned to branch",
+        });
+        entries.push({
+          itemType: "INGREDIENT", itemId: supply.ingredientId,
+          locationType: "BRANCH", locationId: shift.branchId,
+          qty: returned.toFixed(4), unitCost: supply.unitCost.toFixed(4),
+          type: "TRANSFER_IN", refType: "CartShift", refId: shiftId,
+          businessDate: shift.businessDate, reason: "Supplies returned to branch",
+        });
+      }
+
+      if (consumed.greaterThan(0)) {
+        consumedLines += 1;
+        entries.push({
+          itemType: "INGREDIENT", itemId: supply.ingredientId,
+          locationType: "CART", locationId: shift.cartId,
+          qty: consumed.negated().toFixed(4), unitCost: supply.unitCost.toFixed(4),
+          type: "SALE_CONSUMPTION", refType: "CartShift", refId: shiftId,
+          businessDate: shift.businessDate,
+          reason: "Used on the cart — already costed inside the products sold",
+        });
+      }
+    }
+
+    await postLedger(ctx.db, entries, ctx.user.id);
+    await audit(ctx, "UPDATE", "ShiftSupplies", shiftId, null, { counts });
+    refresh(`/shifts/${shiftId}`, "/inventory");
+    return {
+      ok: true,
+      message: `Supplies counted back — ${consumedLines} item${consumedLines === 1 ? "" : "s"} consumed on the cart.`,
     };
   } catch (error) {
     return toActionError(error);

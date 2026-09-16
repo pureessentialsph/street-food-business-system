@@ -7,6 +7,7 @@ import { approveShift } from "@/lib/actions/shifts";
 import { dec, formatPHP, formatPct, sum } from "@/lib/money";
 import { piecesToSticks } from "@/lib/units";
 import { formatBusinessDate, fromDateColumn } from "@/lib/businessDate";
+import { CartLoad, type LoadRow } from "./cart-load";
 import { ClosingGrid } from "./closing-grid";
 import { EmptyShiftActions } from "./empty-shift-actions";
 import { SuppliesForm } from "./supplies-form";
@@ -30,6 +31,7 @@ export default async function ShiftPage({
     include: {
       issues: { include: { lines: true }, orderBy: { seq: "asc" } },
       lines: true,
+      supplies: true,
     },
   });
   if (!shift) notFound();
@@ -54,7 +56,7 @@ export default async function ShiftPage({
   const productName = new Map(products.map((p) => [p.id, p.name]));
 
   // What has been issued so far, across the load-out and every refill.
-  const issuedTotals = new Map<string, { qty: ReturnType<typeof dec>; pps: string; price: string }>();
+  const issuedTotals = new Map<string, { qty: ReturnType<typeof dec>; pps: string; price: string; cost: string }>();
   for (const issue of shift.issues) {
     for (const line of issue.lines) {
       const current = issuedTotals.get(line.productId);
@@ -62,9 +64,13 @@ export default async function ShiftPage({
         qty: (current?.qty ?? dec(0)).plus(line.qtyPieces.toString()),
         pps: line.piecesPerStick.toString(),
         price: line.pricePerStick.toString(),
+        cost: line.unitCostPerPiece.toString(),
       });
     }
   }
+
+  const supplyName = new Map(supplyItems.map((i) => [i.id, i.name]));
+  const supplyUnit = new Map(supplyItems.map((i) => [i.id, i.baseUnit as string]));
 
   const canClose = can(user, "shift.close") && shift.status !== "APPROVED";
   const canApprove = can(user, "shift.approve") && shift.closedById !== user.id;
@@ -158,38 +164,40 @@ export default async function ShiftPage({
         </Card>
       ) : null}
 
-      {shift.issues.length > 0 ? (
-        <Card>
-          <CardHeader><CardTitle>Issued so far</CardTitle></CardHeader>
-          <CardBody>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[420px] text-sm">
-                <thead className="bg-stone-50 text-xs uppercase tracking-wide text-stone-500">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Product</th>
-                    <th className="px-3 py-2 text-right">Pieces</th>
-                    <th className="px-3 py-2 text-right">Sticks</th>
-                    <th className="px-3 py-2 text-right">Value at retail</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {[...issuedTotals.entries()].map(([productId, data]) => (
-                    <tr key={productId}>
-                      <td className="px-3 py-2 font-medium">{productName.get(productId) ?? productId}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums">{data.qty.toFixed(0)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums">
-                        {piecesToSticks(data.qty, data.pps).toFixed(1)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums">
-                        {formatPHP(piecesToSticks(data.qty, data.pps).times(data.price))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardBody>
-        </Card>
+      {shift.issues.length > 0 || shift.supplies.length > 0 ? (
+        <CartLoad
+          shiftId={shift.id}
+          canCount={can(user, "shift.close") && shift.status !== "APPROVED"}
+          rows={[
+            ...[...issuedTotals.entries()].map<LoadRow>(([productId, data]) => {
+              const closed = shift.lines.find((l) => l.productId === productId);
+              return {
+                id: productId,
+                name: productName.get(productId) ?? productId,
+                kind: "PRODUCT",
+                unit: "PC",
+                issued: data.qty.toFixed(0),
+                returned: closed ? dec(closed.piecesReturned).toFixed(0) : null,
+                wasted: closed ? dec(closed.piecesWasted).toFixed(0) : null,
+                sold: closed ? dec(closed.piecesSold).toFixed(0) : null,
+                consumed: null,
+                unitCost: data.cost,
+              };
+            }),
+            ...shift.supplies.map<LoadRow>((supply) => ({
+              id: supply.ingredientId,
+              name: supplyName.get(supply.ingredientId) ?? supply.ingredientId,
+              kind: "SUPPLY",
+              unit: supplyUnit.get(supply.ingredientId) ?? "PC",
+              issued: dec(supply.qtyIssued).toFixed(0),
+              returned: supply.qtyReturned === null ? null : dec(supply.qtyReturned).toFixed(0),
+              wasted: null,
+              sold: null,
+              consumed: supply.qtyConsumed === null ? null : dec(supply.qtyConsumed).toFixed(0),
+              unitCost: supply.unitCost.toString(),
+            })),
+          ]}
+        />
       ) : null}
 
       {canClose && issuedTotals.size > 0 ? (

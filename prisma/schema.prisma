@@ -94,6 +94,7 @@ model Company {
   deductions          Deduction[]
   payrollRuns         PayrollRun[]
   payrollItems        PayrollItem[]
+  shiftSupplies       ShiftSupply[]
 }
 
 model Branch {
@@ -1038,9 +1039,10 @@ model CartShift {
   updatedAt   DateTime @updatedAt
   createdById String?
 
-  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  issues  ShiftIssue[]
-  lines   ShiftLine[]
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  issues   ShiftIssue[]
+  lines    ShiftLine[]
+  supplies ShiftSupply[]
 
   @@unique([cartId, businessDate])
   @@index([companyId, businessDate, status])
@@ -1292,4 +1294,32 @@ model PayrollItem {
 
   @@unique([payrollRunId, employeeId])
   @@index([companyId, employeeId])
+}
+
+/**
+ * Non-sellable items sent out with a cart: sauce, cups, bags, sticks, oil, tissue.
+ * Tracked so the owner can see everything a cart consumed, sellable or not — a cart
+ * burning through twice the cups of its neighbour is worth knowing about. Their cost
+ * is NOT added to the shift: it already sits inside each product's per-stick cost
+ * (spec §5.3), and charging it again would make every margin fiction.
+ */
+model ShiftSupply {
+  id           String   @id @default(cuid())
+  companyId    String
+  shiftId      String
+  ingredientId String
+  qtyIssued    Decimal  @default(0) @db.Decimal(14, 4)
+  qtyReturned  Decimal? @db.Decimal(14, 4)
+  qtyConsumed  Decimal? @db.Decimal(14, 4)
+  unitCost     Decimal  @db.Decimal(14, 4)
+  note         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdById  String?
+
+  company Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  shift   CartShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, ingredientId])
+  @@index([companyId, ingredientId])
 }
