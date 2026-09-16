@@ -42,6 +42,10 @@ describe.skipIf(!hasDb)("ledger integrity (live database)", () => {
   });
 
   it("nets to zero at the vendor after a full day: issued, sold, returned, wasted", async () => {
+    // Measured as a delta, not an absolute: this vendor may legitimately be holding
+    // stock from a shift that is still open, and the test must not depend on that.
+    const before = dec((await onHand(db, "PRODUCT", productId, "EMPLOYEE", employeeId)).qty);
+
     // 400 issued, refilled +200, 540 sold, 50 returned, 10 wasted (spec 11.2 figures).
     await postLedger(db, [
       { itemType: "PRODUCT", itemId: productId, locationType: "EMPLOYEE", locationId: employeeId,
@@ -62,8 +66,8 @@ describe.skipIf(!hasDb)("ledger integrity (live database)", () => {
     const sum = rows.reduce((acc, row) => acc.plus(row.qty.toString()), dec(0));
     expect(sum.toFixed(0)).toBe("0");
 
-    const balance = await onHand(db, "PRODUCT", productId, "EMPLOYEE", employeeId);
-    expect(dec(balance.qty).toFixed(0)).toBe("0");
+    const after = dec((await onHand(db, "PRODUCT", productId, "EMPLOYEE", employeeId)).qty);
+    expect(after.minus(before).toFixed(0)).toBe("0");
   });
 
   it("pairs a transfer so the branch loses exactly what the cart gains", async () => {
