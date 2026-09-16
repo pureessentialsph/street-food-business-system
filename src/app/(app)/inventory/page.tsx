@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
-import { can } from "@/lib/rbac";
+import { can, seesAllBranches } from "@/lib/rbac";
 import { postAdjustment, rebuildStockBalances } from "@/lib/actions/inventory";
 import { dec, formatPHP, sum } from "@/lib/money";
 import { LOCATION_LABEL, locationNames } from "@/lib/inventory-labels";
@@ -23,8 +23,23 @@ export default async function InventoryPage({
   const writable = can(user, "inventory.write");
   const q = params.q?.trim() ?? "";
 
+  // Stock is shown for the places a user is responsible for, not the whole company.
+  const scoped = !seesAllBranches(user);
+  const scopedCarts = scoped
+    ? await db.cart.findMany({ where: { branchId: { in: user.scopeBranchIds } }, select: { id: true } })
+    : [];
+  const scopedStaff = scoped
+    ? await db.employee.findMany({ where: { branchId: { in: user.scopeBranchIds } }, select: { id: true } })
+    : [];
+  const visibleLocationIds = scoped
+    ? [...user.scopeBranchIds, ...scopedCarts.map((c) => c.id), ...scopedStaff.map((e) => e.id)]
+    : [];
+
   const [balances, products, ingredients, branches, carts, employees, names] = await Promise.all([
-    db.stockBalance.findMany({ orderBy: [{ locationType: "asc" }, { updatedAt: "desc" }] }),
+    db.stockBalance.findMany({
+      where: scoped ? { locationId: { in: visibleLocationIds } } : {},
+      orderBy: [{ locationType: "asc" }, { updatedAt: "desc" }],
+    }),
     db.product.findMany({ select: { id: true, name: true, sku: true, piecesPerStick: true } }),
     db.ingredient.findMany({ select: { id: true, name: true, sku: true, baseUnit: true } }),
     db.branch.findMany({ where: { isActive: true }, orderBy: { code: "asc" } }),

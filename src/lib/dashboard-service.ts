@@ -59,7 +59,7 @@ const fx = (v: ReturnType<typeof dec>) => v.toFixed(2);
 
 export async function buildDashboard(
   db: ScopedDb,
-  options: { branchIds?: string[]; days?: number } = {},
+  options: { branchIds?: string[]; days?: number; canSeeDocuments?: boolean } = {},
 ): Promise<{
   today: Scoreboard;
   trend: DayPoint[];
@@ -253,15 +253,21 @@ export async function buildDashboard(
     });
   }
 
-  // Expiring 201-file documents (spec §7). A lapsed health certificate is a closure
-  // risk, so it belongs on the owner's first screen rather than in an HR folder.
+  /**
+   * Expiring 201-file documents (spec §7). A lapsed health certificate is a closure
+   * risk, so it belongs on the owner's first screen rather than in an HR folder — but
+   * document titles are employment records, restricted to OWNER, ADMIN and HR. A
+   * supervisor must not learn from a dashboard alert what a colleague's file contains.
+   */
   const in30Days = new Date();
   in30Days.setDate(in30Days.getDate() + 30);
-  const expiringDocs = await db.employeeDocument.findMany({
-    where: { expiresAt: { not: null, lte: in30Days } },
-    orderBy: { expiresAt: "asc" },
-    take: 5,
-  });
+  const expiringDocs = options.canSeeDocuments
+    ? await db.employeeDocument.findMany({
+        where: { expiresAt: { not: null, lte: in30Days } },
+        orderBy: { expiresAt: "asc" },
+        take: 5,
+      })
+    : [];
   if (expiringDocs.length > 0) {
     const now = new Date();
     const alreadyExpired = expiringDocs.filter((d) => d.expiresAt && d.expiresAt < now).length;

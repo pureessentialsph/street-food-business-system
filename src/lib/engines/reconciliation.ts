@@ -101,6 +101,16 @@ export function validateClosing(
       continue;
     }
 
+    // Pieces are whole things — half a fishball is a typo, not a measurement.
+    if (!returned.isInteger() || !wasted.isInteger()) {
+      issues.push({
+        productId: line.productId,
+        field: "count",
+        message: `${line.productName ?? "This product"}: count whole pieces, not fractions.`,
+      });
+      continue;
+    }
+
     if (returned.plus(wasted).greaterThan(issued)) {
       issues.push({
         productId: line.productId,

@@ -80,10 +80,33 @@ export async function GET(request: Request) {
 
   const level = (url.searchParams.get("level") ?? "COMPANY").toUpperCase();
   const id = url.searchParams.get("id");
-  const scope: PnlScope =
+  const requested: PnlScope =
     level === "BRANCH" && id ? { level: "BRANCH", id }
       : level === "CART" && id ? { level: "CART", id }
         : { level: "COMPANY" };
+
+  /**
+   * Scope is enforced here, not in the UI (spec §4). The level and id arrive in the
+   * query string, so without this a supervisor could ask for level=COMPANY — or another
+   * branch's id — and download the whole company's figures.
+   */
+  let scope = requested;
+  if (!seesAllBranches(user)) {
+    if (requested.level === "BRANCH") {
+      if (!user.scopeBranchIds.includes(requested.id)) {
+        return NextResponse.json({ error: "That branch is not in your scope" }, { status: 403 });
+      }
+    } else if (requested.level === "CART") {
+      const cart = await db.cart.findUnique({ where: { id: requested.id } });
+      if (!cart || !user.scopeBranchIds.includes(cart.branchId)) {
+        return NextResponse.json({ error: "That cart is not in your scope" }, { status: 403 });
+      }
+    } else {
+      const own = user.scopeBranchIds[0];
+      if (!own) return NextResponse.json({ error: "You are not scoped to a branch" }, { status: 403 });
+      scope = { level: "BRANCH", id: own };
+    }
+  }
 
   const report = await buildPnl(db, from, to, scope, {
     allocateOverhead: url.searchParams.get("overhead") === "1",

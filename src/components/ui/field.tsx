@@ -64,11 +64,19 @@ export function TextArea({ className, ...props }: React.TextareaHTMLAttributes<H
   );
 }
 
-export function Checkbox({ label, ...props }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+export function Checkbox({ label, name, ...props }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <label className="flex items-center gap-2 text-sm text-stone-700">
+      {/*
+        An unchecked checkbox sends nothing at all, so a schema default of `true` would
+        quietly keep a record active however many times someone unticked the box. The
+        hidden field always sends "false"; the checkbox overrides it when ticked, because
+        the later value wins when the form is read.
+      */}
+      {name ? <input type="hidden" name={name} value="false" /> : null}
       <input
         type="checkbox"
+        name={name}
         className="h-5 w-5 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
         {...props}
       />

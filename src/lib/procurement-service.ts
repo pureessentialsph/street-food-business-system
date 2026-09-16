@@ -27,7 +27,10 @@ export type Suggestion = ReplenishmentResult & {
   lastPurchasePrice: string | null;
 };
 
-export async function generateSuggestions(db: ScopedDb): Promise<Suggestion[]> {
+export async function generateSuggestions(
+  db: ScopedDb,
+  options: { branchIds?: string[] } = {},
+): Promise<Suggestion[]> {
   const company = await db.company.findFirst({ where: { id: db.$companyId } });
   const todayDate = businessDateFor(new Date(), company?.businessDayCutoffHour ?? 4, company?.timezone ?? "Asia/Manila");
   const window = trailingBusinessDates(todayDate, WINDOW_DAYS);
@@ -36,7 +39,10 @@ export async function generateSuggestions(db: ScopedDb): Promise<Suggestion[]> {
   const coverDays = Number((company?.settings as { coverDays?: number } | null)?.coverDays ?? 7);
 
   const [branches, ingredients, balances, consumption, onOrderLines] = await Promise.all([
-    db.branch.findMany({ where: { isActive: true }, select: { id: true, code: true, name: true, type: true } }),
+    db.branch.findMany({
+      where: { isActive: true, ...(options.branchIds ? { id: { in: options.branchIds } } : {}) },
+      select: { id: true, code: true, name: true, type: true },
+    }),
     db.ingredient.findMany({
       where: { isActive: true },
       include: {

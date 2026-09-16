@@ -26,10 +26,25 @@ export default async function ExpensesPage({
   const canWrite = can(user, "expense.write");
   const canApprove = can(user, "expense.approve");
 
+  // Branches in scope, plus their carts — the ids a scoped user may see spending for.
+  const scopedCarts = seesAllBranches(user)
+    ? []
+    : await db.cart.findMany({
+        where: { branchId: { in: user.scopeBranchIds } },
+        select: { id: true },
+      });
+  const visibleScopeIds = [...user.scopeBranchIds, ...scopedCarts.map((c) => c.id)];
+
   const [categories, expenses, branches, carts, recurring] = await Promise.all([
     db.expenseCategory.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
     db.expense.findMany({
-      where: params.status ? { status: params.status as "DRAFT" | "APPROVED" | "REJECTED" } : {},
+      where: {
+        ...(params.status ? { status: params.status as "DRAFT" | "APPROVED" | "REJECTED" } : {}),
+        // A supervisor sees their own branches' spending, not the company's books.
+        ...(seesAllBranches(user)
+          ? {}
+          : { scopeType: { not: "COMPANY" }, scopeId: { in: visibleScopeIds } }),
+      },
       include: { category: true },
       orderBy: { businessDate: "desc" },
       take: 100,

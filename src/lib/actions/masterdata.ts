@@ -550,13 +550,14 @@ export async function deleteRecord(
       case "branch": {
         const row = await db.branch.findUnique({
           where: { id },
-          include: { _count: { select: { carts: true, employees: true } } },
+          include: { _count: { select: { carts: true, employees: true, shifts: true } } },
         });
         if (!row) return { ok: false, error: "That branch no longer exists." };
         before = row;
         label = row.code;
         if (row._count.carts) blockers.push(count(row._count.carts, "cart"));
         if (row._count.employees) blockers.push(count(row._count.employees, "employee"));
+        if (row._count.shifts) blockers.push(`${count(row._count.shifts, "day")} of trading history`);
         break;
       }
       case "location": {
@@ -573,7 +574,7 @@ export async function deleteRecord(
       case "cart": {
         const row = await db.cart.findUnique({
           where: { id },
-          include: { _count: { select: { assignedStaff: true } } },
+          include: { _count: { select: { assignedStaff: true, shifts: true } } },
         });
         if (!row) return { ok: false, error: "That cart no longer exists." };
         before = row;
@@ -581,6 +582,7 @@ export async function deleteRecord(
         if (row._count.assignedStaff) {
           blockers.push(`${count(row._count.assignedStaff, "employee")} assigned to it`);
         }
+        if (row._count.shifts) blockers.push(`${count(row._count.shifts, "day")} of trading history`);
         break;
       }
       case "supplier": {
@@ -595,17 +597,29 @@ export async function deleteRecord(
         break;
       }
       case "ingredient": {
-        const row = await db.ingredient.findUnique({ where: { id } });
+        const row = await db.ingredient.findUnique({
+          where: { id },
+          include: { _count: { select: { recipeLines: true } } },
+        });
         if (!row) return { ok: false, error: "That ingredient no longer exists." };
         before = row;
         label = row.name;
-        // Recipe lines arrive in Phase 2 and must be added as a blocker here.
+        if (row._count.recipeLines) {
+          blockers.push(`${count(row._count.recipeLines, "recipe")} using it`);
+        }
         break;
       }
       case "product": {
         const row = await db.product.findUnique({
           where: { id },
-          include: { _count: { select: { setComponents: true, priceListItems: true } } },
+          include: {
+            _count: {
+              select: {
+                setComponents: true, priceListItems: true,
+                shiftLines: true, recipes: true,
+              },
+            },
+          },
         });
         if (!row) return { ok: false, error: "That product no longer exists." };
         before = row;
@@ -613,16 +627,26 @@ export async function deleteRecord(
         if (row._count.setComponents) {
           blockers.push(`${count(row._count.setComponents, "set")} that includes it`);
         }
+        if (row._count.shiftLines) {
+          blockers.push(`${count(row._count.shiftLines, "line")} of sales history`);
+        }
+        if (row._count.recipes) blockers.push(`${count(row._count.recipes, "recipe")}`);
         break;
       }
       case "employee": {
         const row = await db.employee.findUnique({
           where: { id },
-          include: { _count: { select: { logins: true, cartsDefaulted: true, reports: true } } },
+          include: {
+            _count: {
+              select: { logins: true, cartsDefaulted: true, reports: true, shifts: true, documents: true },
+            },
+          },
         });
         if (!row) return { ok: false, error: "That employee no longer exists." };
         before = row;
         label = `${row.firstName} ${row.lastName}`;
+        if (row._count.shifts) blockers.push(`${count(row._count.shifts, "shift")} on record`);
+        if (row._count.documents) blockers.push(`${count(row._count.documents, "document")} in their 201 file`);
         if (row._count.logins) blockers.push(`${count(row._count.logins, "user login")}`);
         if (row._count.cartsDefaulted) {
           blockers.push(`${count(row._count.cartsDefaulted, "cart")} where they are the usual vendor`);

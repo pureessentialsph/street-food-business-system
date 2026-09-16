@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
-import { can } from "@/lib/rbac";
+import { can, seesAllBranches } from "@/lib/rbac";
 import { regenerateSuggestions } from "@/lib/actions/procurement";
 import { generateSuggestions, supplierPerformance } from "@/lib/procurement-service";
 import { dec, formatPHP } from "@/lib/money";
@@ -22,9 +22,10 @@ export default async function ProcurementPage() {
   const canOrder = can(user, "procurement.approve");
 
   const [suggestions, stored, orders, branches, performance] = await Promise.all([
-    generateSuggestions(db),
+    generateSuggestions(db, seesAllBranches(user) ? {} : { branchIds: user.scopeBranchIds }),
     db.replenishmentSuggestion.findMany({ where: { status: { in: ["NEW", "DISMISSED"] } } }),
     db.purchaseOrder.findMany({
+      where: seesAllBranches(user) ? {} : { destinationBranchId: { in: user.scopeBranchIds } },
       include: { lines: true },
       orderBy: { createdAt: "desc" },
       take: 25,

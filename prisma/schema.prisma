@@ -123,6 +123,7 @@ model Branch {
   scopes    UserBranchScope[]
   carts     Cart[]
   employees Employee[]
+  shifts    CartShift[]
   area      Area?             @relation(fields: [areaId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, code])
@@ -329,11 +330,12 @@ model Cart {
   updatedAt        DateTime   @updatedAt
   createdById      String?
 
-  company       Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  branch        Branch     @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  location      Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  defaultVendor Employee?  @relation("CartDefaultVendor", fields: [defaultVendorId], references: [id], onDelete: SetNull)
-  assignedStaff Employee[] @relation("EmployeeAssignedCart")
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch        Branch      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  location      Location?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  defaultVendor Employee?   @relation("CartDefaultVendor", fields: [defaultVendorId], references: [id], onDelete: SetNull)
+  assignedStaff Employee[]  @relation("EmployeeAssignedCart")
+  shifts        CartShift[]
 
   @@unique([companyId, code])
   @@index([companyId, branchId, status])
@@ -399,6 +401,7 @@ model Employee {
   events             EmploymentEvent[]
   logins             User[]
   documents          EmployeeDocument[]
+  shifts             CartShift[]         @relation("ShiftVendor")
 
   @@unique([companyId, employeeNo])
   @@index([companyId, isActive])
@@ -539,12 +542,14 @@ model Product {
   updatedAt      DateTime    @updatedAt
   createdById    String?
 
-  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  category       ProductCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  priceListItems PriceListItem[]
-  setComponents  SetComponent[]
-  recipes        Recipe[]
-  costVersions   ProductCostVersion[]
+  company         Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category        ProductCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  priceListItems  PriceListItem[]
+  setComponents   SetComponent[]
+  recipes         Recipe[]
+  costVersions    ProductCostVersion[]
+  shiftLines      ShiftLine[]
+  shiftIssueLines ShiftIssueLine[]
 
   @@unique([companyId, sku])
   @@index([companyId, categoryId, isActive])
@@ -1050,6 +1055,11 @@ model CartShift {
   createdById String?
 
   company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// Restrict, not Cascade: a shift is the financial record of a day's trading, so the
+  /// cart, vendor or branch it belongs to cannot be deleted out from under it.
+  cart     Cart          @relation(fields: [cartId], references: [id], onDelete: Restrict)
+  employee Employee      @relation("ShiftVendor", fields: [employeeId], references: [id], onDelete: Restrict)
+  branch   Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
   issues   ShiftIssue[]
   lines    ShiftLine[]
   supplies ShiftSupply[]
@@ -1094,6 +1104,7 @@ model ShiftIssueLine {
 
   company Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   issue   ShiftIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  product Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@unique([issueId, productId])
   @@index([companyId, productId])
@@ -1127,6 +1138,7 @@ model ShiftLine {
 
   company Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   shift   CartShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  product Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@unique([shiftId, productId])
   @@index([companyId, productId])

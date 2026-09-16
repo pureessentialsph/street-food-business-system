@@ -50,8 +50,12 @@ export function parseForm<T>(
     if (key.startsWith("$")) continue; // framework fields
     raw[key] = value instanceof File ? undefined : value;
   }
-  // Unchecked checkboxes are simply absent from FormData.
-  for (const key of ["isActive", "deductShortage", "isPreferred"]) {
+  /**
+   * Checkboxes send "on" when ticked and, paired with their hidden field, "false" when
+   * not. The last value for a name wins above, so this only has to turn the string into
+   * a boolean — and anything that is not an affirmative is false.
+   */
+  for (const key of ["isActive", "deductShortage", "isPreferred", "isOverhead"]) {
     if (key in raw) raw[key] = raw[key] === "on" || raw[key] === "true";
   }
 

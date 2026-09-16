@@ -20,6 +20,7 @@ export default async function DashboardPage() {
   const company = await db.company.findFirst({ where: { id: user.companyId } });
   const dashboard = await buildDashboard(db, {
     branchIds: seesAllBranches(user) ? undefined : user.scopeBranchIds,
+    canSeeDocuments: can(user, "employee.documents"),
   });
   const { today, trend, carts, bestProducts, slowProducts, alerts } = dashboard;
 

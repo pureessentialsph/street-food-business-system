@@ -408,21 +408,42 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
      * on top. The history then shows both counts and the correction between them.
      */
     const previous = await ctx.db.inventoryTransaction.findMany({
-      where: { refType: "CartShift", refId: shiftId, type: { not: "ADJUSTMENT" } },
+      where: { refType: "CartShift", refId: shiftId },
     });
-    const reversals: LedgerEntry[] = previous.map((row) => ({
-      itemType: row.itemType,
-      itemId: row.itemId,
-      locationType: row.locationType,
-      locationId: row.locationId,
-      qty: dec(row.qty).negated().toFixed(4),
-      unitCost: row.unitCost.toFixed(4),
-      type: "ADJUSTMENT",
-      refType: "CartShift",
-      refId: shiftId,
-      businessDate: shift.businessDate,
-      reason: `Reversing the previous count (${row.type.toLowerCase().replace(/_/g, " ")})`,
-    }));
+
+    /**
+     * Reverse the NET of everything this shift has already posted, not each row.
+     *
+     * Reversing row by row while skipping earlier ADJUSTMENT rows double-counts from the
+     * third close onwards: the first count's rows get reversed again even though an
+     * earlier reversal already cancelled them. Netting per item and location is correct
+     * however many times a shift is re-counted.
+     */
+    const net = new Map<string, { entry: (typeof previous)[number]; qty: ReturnType<typeof dec> }>();
+    for (const row of previous) {
+      const key = `${row.itemType}|${row.itemId}|${row.locationType}|${row.locationId}`;
+      const current = net.get(key);
+      net.set(key, {
+        entry: row,
+        qty: (current?.qty ?? dec(0)).plus(row.qty.toString()),
+      });
+    }
+
+    const reversals: LedgerEntry[] = [...net.values()]
+      .filter((item) => !item.qty.isZero())
+      .map((item) => ({
+        itemType: item.entry.itemType,
+        itemId: item.entry.itemId,
+        locationType: item.entry.locationType,
+        locationId: item.entry.locationId,
+        qty: item.qty.negated().toFixed(4),
+        unitCost: item.entry.unitCost.toFixed(4),
+        type: "ADJUSTMENT",
+        refType: "CartShift",
+        refId: shiftId,
+        businessDate: shift.businessDate,
+        reason: "Reversing the previous count before recording the new one",
+      }));
 
     await postLedger(ctx.db, [...reversals, ...entries], ctx.user.id);
 

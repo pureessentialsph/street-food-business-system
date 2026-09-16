@@ -75,3 +75,21 @@ describe("rbac", () => {
     expect(can(user({ role: "HR" }), "shift.close")).toBe(false);
   });
 });
+
+describe("rbac — the checkbox default trap", () => {
+  it("treats an absent 'active' checkbox as false, not true", async () => {
+    // An unchecked checkbox sends nothing. With a schema default of `true`, unticking
+    // "Active" silently kept the record active — the Checkbox component now pairs every
+    // box with a hidden "false" so the intent always reaches the server.
+    const { branchSchema } = await import("@/lib/validation/masterdata");
+    const unticked = branchSchema.safeParse({
+      code: "BR-99", name: "Test", type: "BRANCH", isActive: false,
+    });
+    expect(unticked.success && unticked.data.isActive).toBe(false);
+
+    const ticked = branchSchema.safeParse({
+      code: "BR-99", name: "Test", type: "BRANCH", isActive: true,
+    });
+    expect(ticked.success && ticked.data.isActive).toBe(true);
+  });
+});
