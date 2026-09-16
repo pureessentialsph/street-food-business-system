@@ -98,6 +98,9 @@ model Company {
   expenseCategories   ExpenseCategory[]
   expenses            Expense[]
   recurringExpenses   RecurringExpense[]
+  purchaseOrders      PurchaseOrder[]
+  purchaseOrderLines  PurchaseOrderLine[]
+  replenishment       ReplenishmentSuggestion[]
 }
 
 model Branch {
@@ -1435,4 +1438,99 @@ model RecurringExpense {
   category ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   @@index([companyId, isActive, nextRunDate])
+}
+
+// ===========================================================================
+// PHASE 8 — PROCUREMENT AND REPLENISHMENT
+//
+// The lifecycle is deliberate (spec §9): SUGGESTED → APPROVED → ORDERED → RECEIVED.
+// Suggestions are data-driven but always overridable — management edits the quantity,
+// accepts it, or dismisses it with a reason.
+// ===========================================================================
+
+enum PoStatus {
+  SUGGESTED
+  APPROVED
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum SuggestionStatus {
+  NEW
+  ACCEPTED
+  DISMISSED
+}
+
+model PurchaseOrder {
+  poNo                String    @id @default(cuid())
+  companyId           String
+  reference           String
+  supplierId          String
+  destinationBranchId String
+  status              PoStatus  @default(SUGGESTED)
+  orderedAt           DateTime?
+  expectedAt          DateTime? @db.Date
+  receivedAt          DateTime?
+  totalAmount         Decimal   @default(0) @db.Decimal(14, 4)
+  notes               String?
+  approvedAt          DateTime?
+  approvedById        String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  createdById         String?
+
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   PurchaseOrderLine[]
+
+  @@unique([companyId, reference])
+  @@index([companyId, status])
+}
+
+model PurchaseOrderLine {
+  id                       String   @id @default(cuid())
+  companyId                String
+  poNo                     String
+  ingredientId             String
+  /// Ordered in the supplier's unit — "sack 25kg" — and converted on receipt.
+  qtyPurchaseUnit          Decimal  @db.Decimal(14, 4)
+  purchaseUnitName         String
+  baseUnitsPerPurchaseUnit Decimal  @db.Decimal(14, 4)
+  unitPrice                Decimal  @db.Decimal(14, 4)
+  qtyReceivedBase          Decimal  @default(0) @db.Decimal(14, 4)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  po      PurchaseOrder @relation(fields: [poNo], references: [poNo], onDelete: Cascade)
+
+  @@unique([poNo, ingredientId])
+  @@index([companyId, ingredientId])
+}
+
+model ReplenishmentSuggestion {
+  id            String            @id @default(cuid())
+  companyId     String
+  itemType      ItemType
+  itemId        String
+  locationType  StockLocationType
+  locationId    String
+  onHand        Decimal           @db.Decimal(14, 4)
+  avgDailyUsage Decimal           @db.Decimal(14, 4)
+  daysOfCover   Decimal?          @db.Decimal(14, 4)
+  reorderPoint  Decimal           @db.Decimal(14, 4)
+  suggestedQty  Decimal           @db.Decimal(14, 4)
+  /// Written in plain language so the owner can judge it without reading the formula.
+  reason        String
+  status        SuggestionStatus  @default(NEW)
+  dismissReason String?
+  generatedAt   DateTime          @default(now())
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, itemType, itemId, locationType, locationId, status])
+  @@index([companyId, status, generatedAt])
 }
