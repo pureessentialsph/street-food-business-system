@@ -27,6 +27,88 @@ export type LedgerEntry = {
   reason?: string;
 };
 
+/**
+ * The client postLedgerWithin needs: either the scoped client or a transaction handle
+ * from it. Typed structurally so a caller inside `$transaction` can pass `tx` straight
+ * through without a cast.
+ */
+type LedgerClient = {
+  inventoryTransaction: { create: (args: never) => Promise<unknown> };
+  stockBalance: {
+    findFirst: (args: never) => Promise<{ id: string; qty: unknown; avgUnitCost: unknown } | null>;
+    update: (args: never) => Promise<unknown>;
+    create: (args: never) => Promise<unknown>;
+  };
+};
+
+/**
+ * Post inside a transaction the caller already owns.
+ *
+ * Closing a shift has to write shift lines, ledger rows, balances and totals together
+ * or not at all (spec §5.5) — a closed shift whose stock never moved is exactly the
+ * silent divergence the ledger exists to prevent.
+ */
+export async function postLedgerWithin(
+  tx: LedgerClient,
+  companyId: string,
+  entries: LedgerEntry[],
+  userId: string | null,
+): Promise<number> {
+  for (const entry of entries) {
+    await tx.inventoryTransaction.create({
+      data: {
+        companyId,
+        itemType: entry.itemType,
+        itemId: entry.itemId,
+        locationType: entry.locationType,
+        locationId: entry.locationId,
+        qty: entry.qty,
+        unitCost: entry.unitCost,
+        type: entry.type,
+        refType: entry.refType,
+        refId: entry.refId,
+        businessDate: entry.businessDate,
+        reason: entry.reason ?? null,
+        createdById: userId,
+      },
+    } as never);
+
+    const existing = await tx.stockBalance.findFirst({
+      where: {
+        itemType: entry.itemType,
+        itemId: entry.itemId,
+        locationType: entry.locationType,
+        locationId: entry.locationId,
+      },
+    } as never);
+
+    const next = applyMovement(
+      { qty: dec(existing?.qty as never ?? 0), avgUnitCost: dec(existing?.avgUnitCost as never ?? 0) },
+      { qty: entry.qty, unitCost: entry.unitCost },
+    );
+
+    if (existing) {
+      await tx.stockBalance.update({
+        where: { id: existing.id },
+        data: { qty: next.qty.toFixed(4), avgUnitCost: next.avgUnitCost.toFixed(4) },
+      } as never);
+    } else {
+      await tx.stockBalance.create({
+        data: {
+          companyId,
+          itemType: entry.itemType,
+          itemId: entry.itemId,
+          locationType: entry.locationType,
+          locationId: entry.locationId,
+          qty: next.qty.toFixed(4),
+          avgUnitCost: next.avgUnitCost.toFixed(4),
+        },
+      } as never);
+    }
+  }
+  return entries.length;
+}
+
 export async function postLedger(
   db: ScopedDb,
   entries: LedgerEntry[],

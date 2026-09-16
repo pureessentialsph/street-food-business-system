@@ -4,7 +4,7 @@ import { z } from "zod";
 import { businessDateFor, toDateColumn } from "@/lib/businessDate";
 import { dec } from "@/lib/money";
 import { costAsOf } from "@/lib/costing-service";
-import { postLedger, type LedgerEntry } from "@/lib/inventory-service";
+import { postLedger, postLedgerWithin, type LedgerEntry } from "@/lib/inventory-service";
 import { reconcileShift, validateClosing, type ReconciliationLineInput } from "@/lib/engines/reconciliation";
 import { assertCanApproveShift, assertScope } from "@/lib/rbac";
 import { computeShiftCompensation } from "@/lib/payroll-service";
@@ -303,6 +303,53 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
 
     const acknowledged = form.vendorAcknowledged === "on" || form.vendorAcknowledged === "true";
 
+    // Built before the transaction opens so the transaction stays short: it does the
+    // writing, not the arithmetic.
+    const entries: LedgerEntry[] = [];
+    for (const line of result.lines) {
+      const cost = line.unitCostPerPiece.toFixed(4);
+      if (line.piecesSold.greaterThan(0)) {
+        entries.push({
+          itemType: "PRODUCT", itemId: line.productId,
+          locationType: "EMPLOYEE", locationId: shift.employeeId,
+          qty: line.piecesSold.negated().toFixed(4), unitCost: cost,
+          type: "SALE_CONSUMPTION", refType: "CartShift", refId: shiftId,
+          businessDate: shift.businessDate, reason: "Sold to customers",
+        });
+      }
+      if (line.piecesReturned.greaterThan(0)) {
+        entries.push({
+          itemType: "PRODUCT", itemId: line.productId,
+          locationType: "EMPLOYEE", locationId: shift.employeeId,
+          qty: line.piecesReturned.negated().toFixed(4), unitCost: cost,
+          type: "RETURN_FROM_VENDOR", refType: "CartShift", refId: shiftId,
+          businessDate: shift.businessDate, reason: "Returned at closing",
+        });
+        entries.push({
+          itemType: "PRODUCT", itemId: line.productId,
+          locationType: "BRANCH", locationId: shift.branchId,
+          qty: line.piecesReturned.toFixed(4), unitCost: cost,
+          type: "RETURN_FROM_VENDOR", refType: "CartShift", refId: shiftId,
+          businessDate: shift.businessDate, reason: "Returned at closing",
+        });
+      }
+      if (line.piecesWasted.greaterThan(0)) {
+        entries.push({
+          itemType: "PRODUCT", itemId: line.productId,
+          locationType: "EMPLOYEE", locationId: shift.employeeId,
+          qty: line.piecesWasted.negated().toFixed(4), unitCost: cost,
+          type: "WASTE", refType: "CartShift", refId: shiftId,
+          businessDate: shift.businessDate,
+          reason: lineInputs.find((l) => l.productId === line.productId)?.wasteReason ?? "Wasted on the cart",
+        });
+      }
+    }
+
+    /**
+     * Shift lines, totals and stock movement land together or not at all (spec §5.5).
+     * Posting the ledger outside this transaction would allow a shift to read as closed
+     * and sold while the stock never moved — the exact divergence the ledger prevents.
+     */
     await ctx.db.$transaction(async (tx) => {
       // Rebuilt from scratch: closing again replaces the previous count rather than
       // adding to it, so a corrected figure is the only figure.
@@ -357,48 +404,7 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
           idempotencyKey: form.idempotencyKey ?? null,
         },
       });
-    });
 
-    // Stock leaves the vendor: sold, returned to the branch, or wasted.
-    const entries: LedgerEntry[] = [];
-    for (const line of result.lines) {
-      const cost = line.unitCostPerPiece.toFixed(4);
-      if (line.piecesSold.greaterThan(0)) {
-        entries.push({
-          itemType: "PRODUCT", itemId: line.productId,
-          locationType: "EMPLOYEE", locationId: shift.employeeId,
-          qty: line.piecesSold.negated().toFixed(4), unitCost: cost,
-          type: "SALE_CONSUMPTION", refType: "CartShift", refId: shiftId,
-          businessDate: shift.businessDate, reason: "Sold to customers",
-        });
-      }
-      if (line.piecesReturned.greaterThan(0)) {
-        entries.push({
-          itemType: "PRODUCT", itemId: line.productId,
-          locationType: "EMPLOYEE", locationId: shift.employeeId,
-          qty: line.piecesReturned.negated().toFixed(4), unitCost: cost,
-          type: "RETURN_FROM_VENDOR", refType: "CartShift", refId: shiftId,
-          businessDate: shift.businessDate, reason: "Returned at closing",
-        });
-        entries.push({
-          itemType: "PRODUCT", itemId: line.productId,
-          locationType: "BRANCH", locationId: shift.branchId,
-          qty: line.piecesReturned.toFixed(4), unitCost: cost,
-          type: "RETURN_FROM_VENDOR", refType: "CartShift", refId: shiftId,
-          businessDate: shift.businessDate, reason: "Returned at closing",
-        });
-      }
-      if (line.piecesWasted.greaterThan(0)) {
-        entries.push({
-          itemType: "PRODUCT", itemId: line.productId,
-          locationType: "EMPLOYEE", locationId: shift.employeeId,
-          qty: line.piecesWasted.negated().toFixed(4), unitCost: cost,
-          type: "WASTE", refType: "CartShift", refId: shiftId,
-          businessDate: shift.businessDate,
-          reason: lineInputs.find((l) => l.productId === line.productId)?.wasteReason ?? "Wasted on the cart",
-        });
-      }
-    }
 
     /**
      * Re-closing must not double-count. Deleting the previous rows would be wrong twice
@@ -407,9 +413,9 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
      * earlier postings are REVERSED with opposite entries, and the new count is posted
      * on top. The history then shows both counts and the correction between them.
      */
-    const previous = await ctx.db.inventoryTransaction.findMany({
-      where: { refType: "CartShift", refId: shiftId },
-    });
+      const previous = await tx.inventoryTransaction.findMany({
+        where: { refType: "CartShift", refId: shiftId },
+      });
 
     /**
      * Reverse the NET of everything this shift has already posted, not each row.
@@ -429,23 +435,24 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
       });
     }
 
-    const reversals: LedgerEntry[] = [...net.values()]
-      .filter((item) => !item.qty.isZero())
-      .map((item) => ({
-        itemType: item.entry.itemType,
-        itemId: item.entry.itemId,
-        locationType: item.entry.locationType,
-        locationId: item.entry.locationId,
-        qty: item.qty.negated().toFixed(4),
-        unitCost: item.entry.unitCost.toFixed(4),
-        type: "ADJUSTMENT",
-        refType: "CartShift",
-        refId: shiftId,
-        businessDate: shift.businessDate,
-        reason: "Reversing the previous count before recording the new one",
-      }));
+      const reversals: LedgerEntry[] = [...net.values()]
+        .filter((item) => !item.qty.isZero())
+        .map((item) => ({
+          itemType: item.entry.itemType,
+          itemId: item.entry.itemId,
+          locationType: item.entry.locationType,
+          locationId: item.entry.locationId,
+          qty: item.qty.negated().toFixed(4),
+          unitCost: item.entry.unitCost.toFixed(4),
+          type: "ADJUSTMENT",
+          refType: "CartShift",
+          refId: shiftId,
+          businessDate: shift.businessDate,
+          reason: "Reversing the previous count before recording the new one",
+        }));
 
-    await postLedger(ctx.db, [...reversals, ...entries], ctx.user.id);
+      await postLedgerWithin(tx as never, ctx.db.$companyId, [...reversals, ...entries], ctx.user.id);
+    });
 
     // Pay falls out of the same count — nobody keys it in separately (spec §8).
     const pay = await computeShiftCompensation(ctx.db, shiftId);
