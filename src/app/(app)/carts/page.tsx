@@ -138,7 +138,7 @@ export default async function CartsPage({
 
       <DataTable
         rows={carts}
-        href={writable ? (row) => `/carts?edit=${row.id}` : undefined}
+        href={(row) => `/carts/${row.id}`}
         empty={{
           title: q ? `No cart matches “${q}”` : "No carts yet",
           action: "Add your first cart and post it to a location — shifts are opened against carts.",
@@ -156,6 +156,14 @@ export default async function CartsPage({
             cell: (c) =>
               writable ? (
                 <div className="flex items-center justify-end gap-2">
+                  {writable ? (
+                    <Link
+                      href="/carts?edit={c.id}"
+                      className="text-xs font-medium text-brand-700 hover:underline"
+                    >
+                      Edit
+                    </Link>
+                  ) : null}
                   <ArchiveButton isActive={c.status !== "RETIRED"} label={c.code} action={setActive.bind(null, "cart", c.id, c.status === "RETIRED")} />
                   {deletable ? (
                     <DeleteButton

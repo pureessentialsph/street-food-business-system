@@ -114,6 +114,41 @@ export async function issueStock(
       };
     }
 
+    /**
+     * Refuse to issue more than the branch actually holds (spec §5.4).
+     *
+     * A negative balance means the books are wrong, and the right moment to notice is
+     * here — while the supervisor is standing at the branch and can post the missing
+     * production or receipt — rather than in a stock report next month.
+     */
+    const balances = await ctx.db.stockBalance.findMany({
+      where: {
+        itemType: "PRODUCT",
+        itemId: { in: wanted.map((w) => w.productId) },
+        locationType: "BRANCH",
+        locationId: shift.branchId,
+      },
+    });
+    const onHandOf = new Map(balances.map((b) => [b.itemId, dec(b.qty)]));
+
+    const shortfalls = wanted
+      .map((line) => {
+        const product = products.find((p) => p.id === line.productId);
+        const available = onHandOf.get(line.productId) ?? dec(0);
+        return { name: product?.name ?? line.productId, want: dec(line.qtyPieces), available };
+      })
+      .filter((item) => item.want.greaterThan(item.available));
+
+    if (shortfalls.length > 0) {
+      return {
+        ok: false,
+        error:
+          `Not enough stock at the branch for ${shortfalls
+            .map((s) => `${s.name} (${s.available.toFixed(0)} on hand, ${s.want.toFixed(0)} wanted)`)
+            .join(", ")}. Record the production batch or receipt first, or reduce the quantity.`,
+      };
+    }
+
     const issue = await ctx.db.shiftIssue.create({
       data: {
         companyId: ctx.db.$companyId,

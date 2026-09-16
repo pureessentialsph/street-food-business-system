@@ -189,7 +189,7 @@ export default async function EmployeesPage({
 
       <DataTable
         rows={employees}
-        href={writable ? (row) => `/employees?edit=${row.id}` : undefined}
+        href={(row) => `/employees/${row.id}`}
         empty={{
           title: q ? `No employee matches “${q}”` : "No employees yet",
           action: "Add your vendors and supervisors — shifts and payroll are recorded against them.",
@@ -220,6 +220,14 @@ export default async function EmployeesPage({
             cell: (e) =>
               writable ? (
                 <div className="flex items-center justify-end gap-2">
+                  {writable ? (
+                    <Link
+                      href="/employees?edit={e.id}"
+                      className="text-xs font-medium text-brand-700 hover:underline"
+                    >
+                      Edit
+                    </Link>
+                  ) : null}
                   <ArchiveButton isActive={e.isActive} label={`${e.firstName} ${e.lastName}`} action={setActive.bind(null, "employee", e.id, !e.isActive)} />
                   {deletable ? (
                     <DeleteButton
