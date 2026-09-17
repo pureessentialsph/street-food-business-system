@@ -11,7 +11,15 @@ export const authConfig = {
   providers: [],
   callbacks: {
     authorized({ auth, request }) {
-      const signedIn = Boolean(auth?.user);
+      /**
+       * Must agree with requireUser() on what "signed in" means. A session token can
+       * decode cleanly and still carry none of our fields — Auth.js hands back a user
+       * object either way — and when that happened the gate waved the request through
+       * and every page died on requireUser() with a raw 500 instead of asking the
+       * operator to sign in again. Check the fields the app actually needs.
+       */
+      const sessionUser = auth?.user;
+      const signedIn = Boolean(sessionUser?.id && sessionUser.companyId);
       const { pathname } = request.nextUrl;
       if (pathname === "/login") return true;
       return signedIn;
