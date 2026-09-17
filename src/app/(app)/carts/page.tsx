@@ -158,7 +158,7 @@ export default async function CartsPage({
                 <div className="flex items-center justify-end gap-2">
                   {writable ? (
                     <Link
-                      href="/carts?edit={c.id}"
+                      href={`/carts?edit=${c.id}`}
                       className="text-xs font-medium text-brand-700 hover:underline"
                     >
                       Edit

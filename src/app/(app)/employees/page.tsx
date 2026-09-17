@@ -222,7 +222,7 @@ export default async function EmployeesPage({
                 <div className="flex items-center justify-end gap-2">
                   {writable ? (
                     <Link
-                      href="/employees?edit={e.id}"
+                      href={`/employees?edit=${e.id}`}
                       className="text-xs font-medium text-brand-700 hover:underline"
                     >
                       Edit

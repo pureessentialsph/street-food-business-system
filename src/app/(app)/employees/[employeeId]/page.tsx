@@ -94,6 +94,11 @@ export default async function EmployeeScorecardPage({
         action={
           <div className="flex gap-3 text-sm">
             <Link href="/employees" className="font-medium text-brand-700 hover:underline">← All employees</Link>
+            {can(user, "masterdata.write") ? (
+              <Link href={`/employees?edit=${employeeId}`} className="font-medium text-brand-700 hover:underline">
+                Edit details
+              </Link>
+            ) : null}
             {can(user, "employee.documents") ? (
               <Link href={`/employees/${employeeId}/documents`} className="font-medium text-brand-700 hover:underline">
                 201 file →

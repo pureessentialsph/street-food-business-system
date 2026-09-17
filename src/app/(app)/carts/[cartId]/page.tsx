@@ -119,6 +119,11 @@ export default async function CartScorecardPage({
         action={
           <div className="flex gap-3 text-sm">
             <Link href="/carts" className="font-medium text-brand-700 hover:underline">← All carts</Link>
+            {can(user, "masterdata.write") ? (
+              <Link href={`/carts?edit=${cart.id}`} className="font-medium text-brand-700 hover:underline">
+                Edit cart
+              </Link>
+            ) : null}
             {can(user, "reports.read") ? (
               <Link href={`/reports?level=CART&id=${cart.id}`} className="font-medium text-brand-700 hover:underline">
                 P&amp;L →
