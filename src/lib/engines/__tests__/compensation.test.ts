@@ -44,6 +44,104 @@ const lopsidedDay: PayLineInput[] = [
   { productId: "kikiam", sticksSold: "52", piecesSold: 208 },
 ];
 
+/**
+ * An uneven split. A cart shifts fishball far more easily than calamares, so the owner
+ * can make calamares carry more of the money. These add to the same ₱250, but nothing
+ * requires them to — the components are what pay, not the header figure.
+ */
+function weightedSet(): SetDefinitionInput {
+  const set = standardSet();
+  const worth: Record<string, string> = {
+    kwek: "60", calamares: "80", squidball: "50", fishball: "20", kikiam: "40",
+  };
+  return {
+    ...set,
+    components: set.components.map((component) => ({
+      ...component,
+      creditValue: worth[component.productId]!,
+    })),
+  };
+}
+
+describe("compensation — an editable credit worth per component", () => {
+  const shift = {
+    status: "CLOSED" as const, netSales: "3000", cashVariance: "0", vendorAcknowledged: true,
+  };
+
+  it("pays each component its own worth, not an equal share", () => {
+    const result = computeShiftPay({
+      shift, lines: lopsidedDay, scheme, rules: [setRule], setDefinition: weightedSet(),
+    });
+    // fishball fell short at 30 sticks, so its ₱20 is the one not earned
+    expect(result.incentiveTotal).toBe("230.00");
+    expect(result.netPay).toBe("730.00");
+  });
+
+  it("names the component's own worth on the payslip line", () => {
+    const result = computeShiftPay({
+      shift, lines: lopsidedDay, scheme, rules: [setRule], setDefinition: weightedSet(),
+    });
+    const calamares = result.lines.find((line) => line.label.includes("Calamares"));
+    expect(calamares?.computation).toContain("₱80.00");
+    expect(calamares?.amount).toBe("80.00");
+  });
+
+  it("falls back to an equal share for a component with no worth of its own", () => {
+    const set = weightedSet();
+    set.components[0]!.creditValue = null;      // kwek-kwek
+    set.components[1]!.creditValue = undefined; // calamares
+    const result = computeShiftPay({
+      shift, lines: lopsidedDay, scheme, rules: [setRule], setDefinition: set,
+    });
+    // kwek + calamares take ₱50 each; squidball ₱50 and kikiam ₱40 keep theirs
+    expect(result.incentiveTotal).toBe("190.00");
+  });
+
+  it("treats a worth of zero as earning nothing, never as unset", () => {
+    const set = weightedSet();
+    set.components[0]!.creditValue = "0"; // kwek-kwek earns no incentive
+    const result = computeShiftPay({
+      shift, lines: lopsidedDay, scheme, rules: [setRule], setDefinition: set,
+    });
+    expect(result.incentiveTotal).toBe("170.00"); // 230 - 60
+    const kwek = result.lines.find((line) => line.label.includes("Kwek-kwek"));
+    expect(kwek?.amount).toBe("0.00");
+  });
+
+  it("still caps credits per component before applying the worth", () => {
+    const set = { ...weightedSet(), maxSetsPerComponent: 1 };
+    const heavyDay: PayLineInput[] = [
+      { productId: "kwek", sticksSold: "150", piecesSold: 600 }, // 3 credits, capped to 1
+      { productId: "calamares", sticksSold: "0", piecesSold: 0 },
+      { productId: "squidball", sticksSold: "0", piecesSold: 0 },
+      { productId: "fishball", sticksSold: "0", piecesSold: 0 },
+      { productId: "kikiam", sticksSold: "0", piecesSold: 0 },
+    ];
+    const result = computeShiftPay({
+      shift, lines: heavyDay, scheme, rules: [setRule], setDefinition: set,
+    });
+    expect(result.incentiveTotal).toBe("60.00");
+  });
+
+  it("leaves the whole-set modes alone — there the set price is the set price", () => {
+    const evenDay: PayLineInput[] = [
+      { productId: "kwek", sticksSold: "50", piecesSold: 200 },
+      { productId: "calamares", sticksSold: "50", piecesSold: 150 },
+      { productId: "squidball", sticksSold: "50", piecesSold: 250 },
+      { productId: "fishball", sticksSold: "50", piecesSold: 500 },
+      { productId: "kikiam", sticksSold: "50", piecesSold: 200 },
+    ];
+    const result = computeShiftPay({
+      shift,
+      lines: evenDay,
+      scheme,
+      rules: [setRule],
+      setDefinition: { ...weightedSet(), completionMode: "ALL_COMPONENTS" },
+    });
+    expect(result.incentiveTotal).toBe("250.00");
+  });
+});
+
 describe("compensation — spec 11.6, the five-product set", () => {
   const shift = {
     status: "CLOSED" as const, netSales: "3000", cashVariance: "0", vendorAcknowledged: true,

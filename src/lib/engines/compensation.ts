@@ -25,6 +25,12 @@ export type SetComponentInput = {
   productId: string;
   productName: string;
   requiredSticks: Decimal | string | number;
+  /**
+   * What one credit of this component is worth. null/undefined falls back to an equal
+   * share of the set incentive — the behaviour every set had before the split became
+   * editable, so old definitions keep paying exactly what they paid yesterday.
+   */
+  creditValue?: Decimal | string | number | null;
 };
 
 export type SetDefinitionInput = {
@@ -86,6 +92,17 @@ export type PayResult = {
 };
 
 const money = (value: Decimal) => value.toDecimalPlaces(2).toFixed(2);
+/**
+ * A component's own credit worth, or an equal share when it has none. A value of zero
+ * is deliberate — "this product earns no incentive" — so it must not fall through to
+ * the equal share.
+ */
+function creditValueOf(component: SetComponentInput, equalShare: Decimal): Decimal {
+  return component.creditValue === null || component.creditValue === undefined
+    ? equalShare
+    : dec(component.creditValue);
+}
+
 const peso = (value: Decimal | string | number) => `₱${dec(value).toDecimalPlaces(2).toFixed(2)}`;
 
 function num(params: Record<string, unknown>, key: string, fallback = 0): Decimal {
@@ -145,10 +162,11 @@ export function computeShiftPay(input: {
           break;
         }
 
-        const share = divide(dec(setDefinition.incentiveAmount), setDefinition.components.length) ?? ZERO;
+        const equalShare = divide(dec(setDefinition.incentiveAmount), setDefinition.components.length) ?? ZERO;
 
         if (setDefinition.completionMode === "PER_COMPONENT") {
           for (const component of setDefinition.components) {
+            const share = creditValueOf(component, equalShare);
             const sticks = sticksOf.get(component.productId) ?? ZERO;
             let credits = setCredits(sticks, component.requiredSticks);
             const capped = setDefinition.maxSetsPerComponent !== null
@@ -170,7 +188,8 @@ export function computeShiftPay(input: {
           break;
         }
 
-        // Both remaining modes are decided by the weakest component.
+        // Both remaining modes pay for the whole set, so a per-component worth does not
+        // apply to them — the weakest component decides and the set price is the set price.
         let weakest: { ratio: Decimal; name: string } | null = null;
         for (const component of setDefinition.components) {
           const sticks = sticksOf.get(component.productId) ?? ZERO;

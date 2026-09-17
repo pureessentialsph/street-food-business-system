@@ -3,7 +3,7 @@
 import {
   branchSchema, cartSchema, compensationSchemeSchema, employeeSchema, ingredientSchema,
   locationSchema, priceListItemSchema, productCategorySchema, productSchema,
-  setComponentSchema, setDefinitionSchema, supplierSchema,
+  setComponentSchema, setCreditSchema, setDefinitionSchema, supplierSchema,
 } from "@/lib/validation/masterdata";
 import { assertScope } from "@/lib/rbac";
 import type { ScopedDb } from "@/lib/db";
@@ -453,18 +453,71 @@ export async function saveSetComponent(
     const existing = await ctx.db.setComponent.findFirst({
       where: { setDefinitionId, productId: parsed.data.productId },
     });
+    const creditValue = nullable(parsed.data.creditValue);
     const after = existing
       ? await ctx.db.setComponent.update({
           where: { id: existing.id },
-          data: { requiredSticks: parsed.data.requiredSticks },
+          data: { requiredSticks: parsed.data.requiredSticks, creditValue },
         })
       : await ctx.db.setComponent.create({
-          data: { ...parsed.data, setDefinitionId, companyId: ctx.db.$companyId },
+          data: { ...parsed.data, creditValue, setDefinitionId, companyId: ctx.db.$companyId },
         });
 
     await audit(ctx, existing ? "UPDATE" : "CREATE", "SetComponent", after.id, existing, after);
     refresh("/sets");
     return { ok: true, id: after.id, message: "Component saved." };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Edit what every component of one set is worth, in a single save. The components of a
+ * set are read together and argued about together — "kwek-kwek carries more of the
+ * money than fishball" is a statement about the whole split — so writing them one at a
+ * time would let a half-applied change pay a vendor from two different schemes.
+ *
+ * A blank field clears the component back to an equal share of the set incentive.
+ */
+export async function saveSetCredits(setDefinitionId: string, formData: FormData): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("company.manage");
+
+    const set = await ctx.db.setDefinition.findUnique({
+      where: { id: setDefinitionId },
+      include: { components: true },
+    });
+    if (!set) return { ok: false, error: "That set no longer exists." };
+
+    const updates: { id: string; creditValue: string | null }[] = [];
+    for (const component of set.components) {
+      const raw = formData.get(`credit-${component.id}`);
+      const parsed = setCreditSchema.safeParse({
+        componentId: component.id,
+        creditValue: typeof raw === "string" ? raw : "",
+      });
+      if (!parsed.success) {
+        return {
+          ok: false,
+          error: "Check the credit worth you entered.",
+          fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+        };
+      }
+      updates.push({ id: component.id, creditValue: nullable(parsed.data.creditValue) });
+    }
+
+    await ctx.db.$transaction(
+      updates.map((update) =>
+        ctx.db.setComponent.update({
+          where: { id: update.id },
+          data: { creditValue: update.creditValue },
+        }),
+      ),
+    );
+
+    await audit(ctx, "UPDATE", "SetDefinition", set.id, { components: set.components }, { components: updates });
+    refresh("/sets", "/payroll");
+    return { ok: true, id: set.id, message: `Credit split saved for ${set.code}.` };
   } catch (error) {
     return toActionError(error);
   }

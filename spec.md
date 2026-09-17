@@ -490,12 +490,15 @@ netPay         = basePay + incentiveTotal − deductionTotal
 
 ### Set completion is per-component (CONFIRMED)
 
-Each of the five products carries **one fifth of the set incentive** and is counted on its own. A vendor who sells 50+ sticks of four products but only 30 sticks of fishball earns **4/5 of the incentive**, not zero. This is the owner's decision and the seeded default; `ALL_COMPONENTS` and `PROPORTIONAL` are implemented and switchable in Settings without a deploy.
+Each of the five products carries **its own share of the set incentive** and is counted on its own. A vendor who sells 50+ sticks of four products but only 30 sticks of fishball earns **those four shares**, not zero. This is the owner's decision and the seeded default; `ALL_COMPONENTS` and `PROPORTIONAL` are implemented and switchable in Settings without a deploy.
 
-Two consequences the owner should see in the UI, not discover in payroll:
+`SetComponent.creditValue` holds what one credit of that component is worth. **`null` means an equal share of `incentiveAmount`** — the seeded default, and what every set did before the split became editable — so existing definitions keep paying exactly what they paid. A value of `0` is deliberate and means the product earns no incentive; it must never fall through to the equal share. The split is edited for a whole set at once on `/sets`, with a running total shown against `incentiveAmount`, because a split is argued about as a sum. The components are what pay: the total may legitimately differ from `incentiveAmount`, and where it does, the components win. `creditValue` applies **only** to `PER_COMPONENT` — the whole-set modes pay `incentiveAmount` because there the weakest component decides.
+
+Three consequences the owner should see in the UI, not discover in payroll:
 
 1. **Components stack.** Under `PER_COMPONENT`, 150 sticks of fishball is `floor(150/50) = 3` credits — a vendor can earn three-fifths of the incentive from fishball alone while selling nothing else. If that is not wanted, set `maxSetsPerComponent: 1` (seeded `null` = uncapped). Surface the per-component credit count on the cart scorecard so lopsided selling is visible.
-2. **Refills need no special rule.** Because credits are computed on the **day's total sticks sold per product** and refills are per-product top-ups, a vendor who sells 50 sticks of fishball, refills, and sells 50 more simply earns 2 fishball credits. `REFILL_BONUS` stays in the schema but is not seeded.
+2. **An uneven split changes the incentive ceiling.** Five components worth ₱60/₱80/₱50/₱20/₱40 pay ₱250 for a full sell-through, but ₱230 when fishball falls short and ₱170 when kwek-kwek does. The cost of missing a component is no longer uniform, which is the point — it lets the owner put the money where the selling is hard.
+3. **Refills need no special rule.** Because credits are computed on the **day's total sticks sold per product** and refills are per-product top-ups, a vendor who sells 50 sticks of fishball, refills, and sells 50 more simply earns 2 fishball credits. `REFILL_BONUS` stays in the schema but is not seeded.
 
 Every line in the result carries `{ ruleType, label, basis, computation, amount }` so the payslip literally shows: *"Set completion — fishball: 540 pcs ÷ 10 per stick = 54.0 sticks ÷ 50 required = 1 credit × ₱50 = ₱50.00."* Management must never have to trust a black box.
 
@@ -612,7 +615,7 @@ Fishball at Cart-012, **in pieces**: onHand 600, trailing 14-day sales 7,000 pcs
 
 ### 11.6 Set completion — the five-product bundle
 
-`SetDefinition STD-SET`, `incentiveAmount = ₱250.00`, five components at 50 required sticks each → `componentShare = ₱50.00`. `completionMode = PER_COMPONENT`, `maxSetsPerComponent = null`.
+`SetDefinition STD-SET`, `incentiveAmount = ₱250.00`, five components at 50 required sticks each, every `creditValue` null → each share is `₱50.00`. `completionMode = PER_COMPONENT`, `maxSetsPerComponent = null`.
 
 One shift's closing figures:
 
@@ -656,7 +659,7 @@ And `requireZeroShortage: true` with `cashVariance = −₱12.00` → incentive 
 **Phase 4 — Shift reconciliation (the core loop).** Daily Close board listing all carts by status, batch issuance with 7-day default quantities and a **"load one standard set" button** (1,300 pcs across the five products in one tap), per-product refills, numeric-grid closing entry, vendor acknowledgment capture, validations, independent approval, immutability. Mobile-first: big tap targets, numeric keypads, minimal typing, usable one-handed at a branch. Test 11.2 (reconciliation half) passes.
 *Done when:* one supervisor can issue to and close **eight carts** on a phone in under ten minutes, and none of those shifts can be approved by that supervisor.
 
-**Phase 5 — Compensation and payroll.** Schemes, configurable rules UI (**set definition editor, component credit mode, `maxSetsPerComponent`**), per-shift computation with a per-component credit breakdown, deductions, payroll run with review/approve/lock, printable payslip. Test 11.2 (compensation half) passes.
+**Phase 5 — Compensation and payroll.** Schemes, configurable rules UI (**set definition editor, component credit mode, per-component credit worth, `maxSetsPerComponent`**), per-shift computation with a per-component credit breakdown, deductions, payroll run with review/approve/lock, printable payslip. Test 11.2 (compensation half) passes.
 *Done when:* payroll for a week is produced from shift data with zero manual arithmetic, each peso is traceable to a rule, and a payslip shows the five per-component credit lines with their stick math.
 
 **Phase 6 — Expenses and P&L.** Expense categories, entry with receipt upload, approval, recurring expenses, overhead allocation toggle, P&L at every level with full drill-down.
@@ -710,7 +713,7 @@ Every item below has been answered. Nothing in this spec is waiting on a decisio
 9. ✅ **CONFIRMED — Supervisors enter all cart data for all their carts.** Vendors have no accounts in the MVP. Shift screens are built for batch operation, approval is independent of the person who closed the shift, and vendor acknowledgment is captured at closing.
 10. ✅ **CONFIRMED — One company-wide price list.** Same peso price per product at every branch, cart, and location; promos are recorded as per-shift discounts. Branch/cart price scoping stays in the schema, unused (§5.3).
 
-11. ✅ **CONFIRMED — set completion is per-component.** Each of the five products carries one fifth of the set incentive and is credited on its own, so four of five components sold through earns 4/5 of the incentive (§8). `ALL_COMPONENTS` and `PROPORTIONAL` are implemented and switchable in Settings.
+11. ✅ **CONFIRMED — set completion is per-component.** Each of the five products carries its own share of the set incentive (equal by default, editable per component) and is credited on its own, so four of five components sold through earns 4/5 of the incentive (§8). `ALL_COMPONENTS` and `PROPORTIONAL` are implemented and switchable in Settings.
 12. ✅ **CONFIRMED — refills are per-product top-ups** of any quantity, not whole new sets. Because credits are computed on day totals, refills earn incentive automatically and `REFILL_BONUS` is not seeded.
 13. ✅ **CONFIRMED — carts hold loose pieces**, skewered at the point of sale. `stockUnit = PIECE` for every product; the ledger, issuance, returns, waste, and closing counts are all in pieces.
 

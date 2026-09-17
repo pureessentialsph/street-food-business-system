@@ -624,6 +624,11 @@ model SetComponent {
   productId       String
   /// Sticks of this product needed for one set — 50 in the standard set.
   requiredSticks  Decimal  @db.Decimal(14, 4)
+  /// Pesos one credit of THIS component is worth under PER_COMPONENT counting.
+  /// null = take an equal share of the set incentive, which is how every set behaved
+  /// before the split became editable. Components need not be worth the same: a cart
+  /// sells fishball far more easily than calamares.
+  creditValue     Decimal? @db.Decimal(14, 4)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   createdById     String?

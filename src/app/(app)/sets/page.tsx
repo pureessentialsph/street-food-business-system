@@ -2,18 +2,19 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can } from "@/lib/rbac";
-import { removeSetComponent, saveSetComponent, saveSetDefinition } from "@/lib/actions/masterdata";
+import { removeSetComponent, saveSetComponent, saveSetCredits, saveSetDefinition } from "@/lib/actions/masterdata";
 import { dec, divide, formatPHP, sum } from "@/lib/money";
 import { sticksToPieces } from "@/lib/units";
 import { PageHeader } from "@/components/data-table";
 import { EntityForm, RemoveButton } from "@/components/entity-form";
+import { SetCreditSplit } from "@/components/set-credit-split";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle, EmptyState } from "@/components/ui/card";
 import { Badge, Checkbox, Field, NumberInput, Select, TextArea, TextInput } from "@/components/ui/field";
 
 const MODE_EXPLAINER = {
   PER_COMPONENT:
-    "Each product carries an equal share of the incentive and is credited on its own. Selling through four of five components earns 4/5 of the money.",
+    "Each product carries its own share of the incentive and is credited on its own. Selling through four of five components earns those four shares.",
   ALL_COMPONENTS:
     "All-or-nothing: the weakest component decides. One product left unsold means no incentive at all.",
   PROPORTIONAL:
@@ -68,7 +69,7 @@ export default async function SetsPage({
               <Field label="Name" name="name" required>
                 <TextInput id="name" name="name" defaultValue={editing?.name ?? "Standard Cart Set"} required />
               </Field>
-              <Field label="Incentive for a full set (₱)" name="incentiveAmount" required hint="Split equally across components under per-component counting.">
+              <Field label="Incentive for a full set (₱)" name="incentiveAmount" required hint="The default worth of a full set. Under per-component counting each component can be given its own worth below.">
                 <NumberInput id="incentiveAmount" name="incentiveAmount" defaultValue={editing?.incentiveAmount.toString() ?? "250"} required />
               </Field>
               <Field label="Counting mode" name="completionMode" required hint={MODE_EXPLAINER[editing?.completionMode ?? "PER_COMPONENT"]}>
@@ -115,6 +116,14 @@ export default async function SetsPage({
           set.components.length > 0
             ? divide(set.incentiveAmount, set.components.length)
             : null;
+        /**
+         * What the set actually pays when every component sells through: each
+         * component's own worth, or an equal share where it has none. This is the
+         * figure payroll will use, so it is the one worth showing.
+         */
+        const splitTotal = sum(
+          set.components.map((component) => component.creditValue ?? share ?? 0),
+        );
 
         return (
           <Card key={set.id}>
@@ -138,8 +147,10 @@ export default async function SetsPage({
                   <p className="font-mono text-base font-medium">{formatPHP(set.incentiveAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-stone-500">Per component</p>
-                  <p className="font-mono text-base font-medium">{share ? formatPHP(share) : "—"}</p>
+                  <p className="text-stone-500">Split total</p>
+                  <p className="font-mono text-base font-medium">
+                    {set.components.length ? formatPHP(splitTotal) : "—"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-stone-500">Total sticks</p>
@@ -187,7 +198,11 @@ export default async function SetsPage({
                             {sticksToPieces(component.requiredSticks, component.product.piecesPerStick).toFixed(0)}
                           </td>
                           <td className="px-3 py-2 text-right font-mono tabular-nums">
-                            {share ? formatPHP(share) : "—"}
+                            {component.creditValue
+                              ? formatPHP(component.creditValue)
+                              : share
+                                ? `${formatPHP(share)}*`
+                                : "—"}
                           </td>
                           <td className="px-3 py-2 text-right">
                             {writable ? (
@@ -205,6 +220,33 @@ export default async function SetsPage({
                 </div>
               )}
 
+              {set.components.some((component) => component.creditValue === null) ? (
+                <p className="text-xs text-stone-500">
+                  * takes an equal share of the set incentive because it has no worth of its own.
+                </p>
+              ) : null}
+
+              {writable && set.components.length > 0 ? (
+                <div className="rounded-md border border-stone-200 p-3">
+                  <p className="mb-1 text-sm font-medium text-stone-700">Credit worth per component</p>
+                  <p className="mb-3 text-xs text-stone-500">
+                    What a vendor earns for selling through each product on its own. Only used
+                    under per-component counting.
+                  </p>
+                  <SetCreditSplit
+                    action={saveSetCredits.bind(null, set.id)}
+                    incentiveAmount={Number(set.incentiveAmount)}
+                    equalShare={share ? Number(share) : 0}
+                    rows={set.components.map((component) => ({
+                      id: component.id,
+                      productName: component.product.name,
+                      requiredSticks: component.requiredSticks.toFixed(0),
+                      creditValue: component.creditValue?.toString() ?? "",
+                    }))}
+                  />
+                </div>
+              ) : null}
+
               {writable ? (
                 <div className="rounded-md border border-stone-200 p-3">
                   <p className="mb-2 text-sm font-medium text-stone-700">Add or update a component</p>
@@ -221,6 +263,13 @@ export default async function SetsPage({
                     </Field>
                     <Field label="Required sticks" name={`sticks-${set.id}`} required hint="50 in the standard set.">
                       <NumberInput id={`sticks-${set.id}`} name="requiredSticks" defaultValue="50" required />
+                    </Field>
+                    <Field
+                      label="Credit worth (₱)"
+                      name={`credit-new-${set.id}`}
+                      hint="Blank = an equal share of the set incentive."
+                    >
+                      <NumberInput id={`credit-new-${set.id}`} name="creditValue" placeholder={share ? Number(share).toFixed(2) : "0.00"} />
                     </Field>
                   </EntityForm>
                 </div>

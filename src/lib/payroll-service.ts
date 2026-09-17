@@ -30,6 +30,7 @@ async function setInForce(db: ScopedDb, businessDate: Date): Promise<SetDefiniti
       productId: component.productId,
       productName: component.product.name,
       requiredSticks: component.requiredSticks.toString(),
+      creditValue: component.creditValue?.toString() ?? null,
     })),
   };
 }

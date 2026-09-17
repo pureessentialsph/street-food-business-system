@@ -19,6 +19,20 @@ export const decimalString = (label: string, { min = 0, allowZero = true } = {})
       return allowZero ? n >= min : n > min;
     }, `${label} must be ${allowZero ? `at least ${min}` : `greater than ${min}`}`);
 
+/**
+ * Blank is allowed and means "not set"; a number must not be negative. optionalDecimal-
+ * String alone would accept "-50" — DECIMAL_RE permits a leading minus — and an
+ * incentive that subtracts money is never what anyone meant to type.
+ */
+export const optionalNonNegativeDecimal = (label: string) =>
+  z
+    .string()
+    .trim()
+    .regex(DECIMAL_RE, `${label} must be a number`)
+    .refine((v) => Number(v) >= 0, `${label} cannot be negative`)
+    .optional()
+    .or(z.literal("").transform(() => undefined));
+
 export const optionalDecimalString = (label: string) =>
   z
     .string()
@@ -162,6 +176,14 @@ export const employeeSchema = z.object({
 export const setComponentSchema = z.object({
   productId: id,
   requiredSticks: decimalString("Required sticks", { min: 0, allowZero: false }),
+  /// Blank means "an equal share of the set incentive"; 0 means "earns nothing".
+  creditValue: optionalNonNegativeDecimal("Credit worth"),
+});
+
+/// One row of the credit-split editor: componentId -> what a credit of it is worth.
+export const setCreditSchema = z.object({
+  componentId: id,
+  creditValue: optionalNonNegativeDecimal("Credit worth"),
 });
 
 export const setDefinitionSchema = z.object({
