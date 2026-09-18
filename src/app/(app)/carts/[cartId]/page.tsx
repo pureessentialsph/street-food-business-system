@@ -61,6 +61,16 @@ export default async function CartScorecardPage({
       .map((i) => [i.id, { name: i.name, unit: i.baseUnit }]),
   );
 
+  /** Equipment currently on this cart — retired and lost kit is history, not kit. */
+  const assets = await db.asset.findMany({
+    where: {
+      locationType: "CART",
+      locationId: cartId,
+      status: { notIn: ["RETIRED", "LOST"] },
+    },
+    orderBy: { tag: "asc" },
+  });
+
   const counted = shifts.filter((s) => s.status === "CLOSED" || s.status === "APPROVED");
   const shiftIds = new Set(counted.map((s) => s.id));
   const productName = new Map(products.map((p) => [p.id, p.name]));
@@ -143,6 +153,42 @@ export default async function CartScorecardPage({
             : "No usual vendor set"}
         </span>
       </div>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle>Equipment on this cart</CardTitle>
+              <Link href="/assets" className="text-sm font-medium text-brand-700 hover:underline">
+                All assets →
+              </Link>
+            </div>
+          </CardHeader>
+          <CardBody>
+            {assets.length === 0 ? (
+              <p className="text-sm text-stone-500">
+                Nothing assigned. A cart that trades needs a fryer, a tank and utensils on
+                its name — otherwise nobody is accountable for them.
+              </p>
+            ) : (
+              <ul className="divide-y divide-stone-100 text-sm">
+                {assets.map((asset) => (
+                  <li key={asset.id} className="flex items-center justify-between gap-2 py-2">
+                    <span>
+                      <span className="font-mono text-xs text-stone-500">{asset.tag}</span>{" "}
+                      <span className="font-medium text-stone-900">{asset.name}</span>
+                      {asset.condition === "GOOD" ? null : (
+                        <span className="ml-2 text-xs font-medium text-amber-700">
+                          {asset.condition === "UNSERVICEABLE" ? "unserviceable" : "needs repair"}
+                        </span>
+                      )}
+                    </span>
+                    <span className="font-mono text-stone-600">{formatPHP(asset.acquisitionCost)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
 
       {counted.length === 0 ? (
         <EmptyState

@@ -163,6 +163,39 @@ export const companySchema = z.object({
   defaultWastagePct: optionalNonNegativeDecimal("Default wastage %"),
 });
 
+/**
+ * An asset is equipment, not stock: it is not consumed by selling, so it never touches
+ * the inventory ledger. Location is optional because a thing can sit unassigned in the
+ * office before anyone takes it out to a cart.
+ */
+export const assetSchema = z.object({
+  tag: code,
+  name,
+  category: z.enum([
+    "COOKING_EQUIPMENT", "CART_VEHICLE", "CONTAINER",
+    "UTENSIL", "FURNITURE", "ELECTRONICS", "OTHER",
+  ]),
+  serialNo: optionalText,
+  acquiredOn: isoDate,
+  acquisitionCost: decimalString("Acquisition cost"),
+  supplierId: optionalId,
+  condition: z.enum(["GOOD", "NEEDS_REPAIR", "UNSERVICEABLE"]),
+  status: z.enum(["IN_USE", "IN_STORAGE", "IN_REPAIR", "RETIRED", "LOST"]),
+  locationType: z.enum(["WAREHOUSE", "BRANCH", "CART", "EMPLOYEE"]).optional()
+    .or(z.literal("").transform(() => undefined)),
+  locationId: optionalId,
+  notes: optionalText,
+});
+
+/** Moving one asset somewhere else. The reason is what makes the history worth having. */
+export const assetAssignmentSchema = z.object({
+  locationType: z.enum(["WAREHOUSE", "BRANCH", "CART", "EMPLOYEE"]).optional()
+    .or(z.literal("").transform(() => undefined)),
+  locationId: optionalId,
+  movedOn: isoDate,
+  reason: optionalText,
+});
+
 export const compensationSchemeSchema = z.object({
   name,
   baseDailyRate: decimalString("Base daily rate"),

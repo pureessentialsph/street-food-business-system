@@ -63,6 +63,8 @@ model Company {
   employees           Employee[]
   employmentEvents    EmploymentEvent[]
   compensationSchemes CompensationScheme[]
+  assets              Asset[]
+  assetAssignments    AssetAssignment[]
   suppliers           Supplier[]
   ingredients         Ingredient[]
   supplierIngredients SupplierIngredient[]
@@ -440,6 +442,7 @@ model Supplier {
 
   company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   ingredients SupplierIngredient[]
+  assets      Asset[]
 
   @@unique([companyId, name])
   @@index([companyId, isActive])
@@ -772,6 +775,97 @@ model ProductCostVersion {
 enum ItemType {
   INGREDIENT
   PRODUCT
+}
+
+// ===========================================================================
+// ASSETS — the durable things a cart needs to trade
+// ===========================================================================
+
+/**
+ * Equipment, not stock. A deep fryer is not consumed by selling, so it never belongs
+ * in the inventory ledger — putting it there would make every count and every COGS
+ * figure wrong. It is tracked because it is worth money, it lives somewhere specific,
+ * and somebody is holding it.
+ * Note the LPG distinction the business actually has: the gas is an Ingredient and is
+ * consumed; the steel tank is an Asset and comes back.
+ */
+model Asset {
+  id              String             @id @default(cuid())
+  companyId       String
+  /// Painted or stickered on the thing itself, e.g. AST-0012.
+  tag             String
+  name            String
+  category        AssetCategory
+  serialNo        String?
+  acquiredOn      DateTime           @db.Date
+  acquisitionCost Decimal            @db.Decimal(14, 4)
+  supplierId      String?
+  condition       AssetCondition     @default(GOOD)
+  status          AssetStatus        @default(IN_USE)
+  /// Where it is now. Same shape as a stock location so a cart, branch, warehouse or
+  /// a named vendor can all hold one. Null while it is unassigned.
+  locationType    StockLocationType?
+  locationId      String?
+  notes           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  createdById     String?
+
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier    Supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  assignments AssetAssignment[]
+
+  @@unique([companyId, tag])
+  @@index([companyId, status])
+  @@index([companyId, locationType, locationId])
+}
+
+/**
+ * Append-only: where an asset has been and who moved it. This is the accountability
+ * record — "the fryer was on CART-003 under Carla from 12 Aug" — so rows are written,
+ * never edited. Asset.locationType/Id is the cache of the latest row.
+ */
+model AssetAssignment {
+  id               String             @id @default(cuid())
+  companyId        String
+  assetId          String
+  fromLocationType StockLocationType?
+  fromLocationId   String?
+  toLocationType   StockLocationType?
+  toLocationId     String?
+  movedOn          DateTime           @db.Date
+  reason           String?
+  createdAt        DateTime           @default(now())
+  createdById      String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  asset   Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, assetId, movedOn])
+}
+
+enum AssetCategory {
+  COOKING_EQUIPMENT
+  CART_VEHICLE
+  CONTAINER
+  UTENSIL
+  FURNITURE
+  ELECTRONICS
+  OTHER
+}
+
+enum AssetCondition {
+  GOOD
+  NEEDS_REPAIR
+  UNSERVICEABLE
+}
+
+enum AssetStatus {
+  IN_USE
+  IN_STORAGE
+  IN_REPAIR
+  RETIRED
+  LOST
 }
 
 enum StockLocationType {
