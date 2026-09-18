@@ -64,6 +64,7 @@ model Company {
   employmentEvents    EmploymentEvent[]
   compensationSchemes CompensationScheme[]
   assets              Asset[]
+  assetCategories     AssetCategory[]
   assetAssignments    AssetAssignment[]
   suppliers           Supplier[]
   ingredients         Ingredient[]
@@ -795,7 +796,7 @@ model Asset {
   /// Painted or stickered on the thing itself, e.g. AST-0012.
   tag             String
   name            String
-  category        AssetCategory
+  category        String
   serialNo        String?
   acquiredOn      DateTime           @db.Date
   acquisitionCost Decimal            @db.Decimal(14, 4)
@@ -844,14 +845,24 @@ model AssetAssignment {
   @@index([companyId, assetId, movedOn])
 }
 
-enum AssetCategory {
-  COOKING_EQUIPMENT
-  CART_VEHICLE
-  CONTAINER
-  UTENSIL
-  FURNITURE
-  ELECTRONICS
-  OTHER
+/// Categories offered in the asset form. A category typed once is saved here and
+/// offered from then on, so the business's own vocabulary accumulates instead of
+/// living in an enum that only a deploy can change. Asset.category stays free text —
+/// renaming a category here must never silently rewrite an asset's record.
+model AssetCategory {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
 }
 
 enum AssetCondition {

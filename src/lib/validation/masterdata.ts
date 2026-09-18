@@ -171,14 +171,17 @@ export const companySchema = z.object({
 export const assetSchema = z.object({
   tag: code,
   name,
-  category: z.enum([
-    "COOKING_EQUIPMENT", "CART_VEHICLE", "CONTAINER",
-    "UTENSIL", "FURNITURE", "ELECTRONICS", "OTHER",
-  ]),
+  /// Free text backed by a lookup list, like an employee's position. A category typed
+  /// here is remembered and offered next time.
+  category: z.string().trim().min(2, "Category is required").max(60)
+    .refine((v) => v !== "__new__", "Type the new category name"),
   serialNo: optionalText,
   acquiredOn: isoDate,
   acquisitionCost: decimalString("Acquisition cost"),
   supplierId: optionalId,
+  /// A supplier typed rather than chosen. Creates a stub for someone to complete later.
+  supplierName: z.string().trim().max(120).optional()
+    .or(z.literal("").transform(() => undefined)),
   condition: z.enum(["GOOD", "NEEDS_REPAIR", "UNSERVICEABLE"]),
   status: z.enum(["IN_USE", "IN_STORAGE", "IN_REPAIR", "RETIRED", "LOST"]),
   locationType: z.enum(["WAREHOUSE", "BRANCH", "CART", "EMPLOYEE"]).optional()

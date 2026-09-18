@@ -79,7 +79,22 @@ export default async function SuppliersPage({
           action: "Add the wet-market vendors and distributors you buy ingredients from.",
         }}
         columns={[
-          { header: "Name", cell: (s) => s.name },
+          {
+            header: "Name",
+            /**
+             * A supplier created in passing from the asset form knows only its name.
+             * Flag it here, or a stub sits unnoticed and procurement suggests orders
+             * against a lead time nobody chose.
+             */
+            cell: (s) => (
+              <span className="flex flex-wrap items-center gap-2">
+                {s.name}
+                {!s.contactPerson && !s.mobile ? (
+                  <Badge tone="warning">details to follow</Badge>
+                ) : null}
+              </span>
+            ),
+          },
           { header: "Contact", cell: (s) => s.contactPerson ?? "—" },
           { header: "Mobile", cell: (s) => s.mobile ?? "—" },
           { header: "Lead time", numeric: true, cell: (s) => `${s.leadTimeDays} d` },

@@ -196,7 +196,11 @@ export default async function GuidePage() {
                 </p>
               </Step>
               <Step n={12} title="Add suppliers" where="/suppliers">
-                <p>Who you buy from, and their lead time — used to suggest when to reorder.</p>
+                <p>
+                  Who you buy from, and their lead time — used to suggest when to reorder. You can
+                  also create one in passing from the asset form; it will be flagged here until
+                  you complete its details.
+                </p>
               </Step>
               <Step n={13} title="Record your equipment" where="/assets">
                 <p>Fryers, LPG tanks, tongs, the motor carts. See section 6.</p>
@@ -371,6 +375,20 @@ export default async function GuidePage() {
               and is consumed, so it belongs in inventory. The <strong>tank</strong> is an asset
               and comes back, so it belongs here.
             </Note>
+            <p className="text-sm text-stone-600">
+              <strong>Category</strong> and <strong>Bought from</strong> both accept new entries.
+              Choose <em>Add a new category</em> or <em>Add a new supplier</em> and type it — the
+              category is remembered and offered next time, and a new supplier name creates the
+              supplier there and then. Typing a name that already exists matches it rather than
+              making a second copy.
+            </p>
+            <Warn>
+              A supplier created this way knows only its name, and is marked{" "}
+              <strong>details to follow</strong> on{" "}
+              <Link href="/suppliers" className="text-brand-700 hover:underline">/suppliers</Link>.
+              Give it a contact and a real lead time when you get a moment — until you do,
+              procurement will plan orders against a placeholder lead time of one day.
+            </Warn>
           </GuideSection>
 
           <GuideSection

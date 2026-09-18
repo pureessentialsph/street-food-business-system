@@ -9,16 +9,7 @@ import { DeleteButton, EntityForm } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, Field, NumberInput, Select, TextArea, TextInput } from "@/components/ui/field";
-
-const CATEGORY_LABELS = {
-  COOKING_EQUIPMENT: "Cooking equipment",
-  CART_VEHICLE: "Cart / vehicle",
-  CONTAINER: "Container",
-  UTENSIL: "Utensil",
-  FURNITURE: "Furniture",
-  ELECTRONICS: "Electronics",
-  OTHER: "Other",
-} as const;
+import { ComboSelect } from "@/components/combo-select";
 
 const STATUS_LABELS = {
   IN_USE: "in use",
@@ -48,7 +39,7 @@ export default async function AssetsPage({
 
   const branchFilter = seesAllBranches(user) ? {} : { branchId: { in: user.scopeBranchIds } };
 
-  const [assets, branches, carts, employees, suppliers] = await Promise.all([
+  const [assets, branches, carts, employees, suppliers, categories] = await Promise.all([
     db.asset.findMany({
       where: {
         ...(params.status ? { status: params.status as never } : {}),
@@ -71,7 +62,16 @@ export default async function AssetsPage({
     db.cart.findMany({ where: { ...branchFilter }, orderBy: { code: "asc" } }),
     db.employee.findMany({ where: { isActive: true }, orderBy: { lastName: "asc" } }),
     db.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    db.assetCategory.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
   ]);
+
+  /**
+   * An asset whose category has since been dropped from the list still edits cleanly,
+   * and the list never loses an option that something is actually using.
+   */
+  const categoryNames = Array.from(
+    new Set([...categories.map((c) => c.name), ...assets.map((a) => a.category)]),
+  ).sort();
 
   /** One lookup for every kind of holder, so a row can name where a thing actually is. */
   const holderName = new Map<string, string>();
@@ -150,12 +150,21 @@ export default async function AssetsPage({
               <Field label="What is it" name="name" required>
                 <TextInput id="name" name="name" defaultValue={editing?.name ?? ""} required placeholder="e.g. Deep fryer, twin basket" />
               </Field>
-              <Field label="Category" name="category" required>
-                <Select id="category" name="category" defaultValue={editing?.category ?? "COOKING_EQUIPMENT"}>
-                  {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </Select>
+              <Field
+                label="Category"
+                name="category"
+                required
+                hint="Pick one, or add a new one — it is saved and offered next time."
+              >
+                <ComboSelect
+                  name="category"
+                  newName="category"
+                  required
+                  options={categoryNames.map((c) => ({ value: c, label: c }))}
+                  defaultValue={editing?.category ?? ""}
+                  placeholder="e.g. Refrigeration"
+                  addLabel="+ Add a new category"
+                />
               </Field>
               <Field label="Serial number" name="serialNo" hint="If it has one. Helps when two look identical.">
                 <TextInput id="serialNo" name="serialNo" defaultValue={editing?.serialNo ?? ""} />
@@ -166,11 +175,20 @@ export default async function AssetsPage({
               <Field label="What it cost (₱)" name="acquisitionCost" required hint="What you paid for it, not what it is worth now.">
                 <NumberInput id="acquisitionCost" name="acquisitionCost" defaultValue={editing?.acquisitionCost.toString() ?? ""} required />
               </Field>
-              <Field label="Bought from" name="supplierId">
-                <Select id="supplierId" name="supplierId" defaultValue={editing?.supplierId ?? ""}>
-                  <option value="">— not recorded —</option>
-                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </Select>
+              <Field
+                label="Bought from"
+                name="supplierId"
+                hint="Type a new name and the supplier is created — add their contact and lead time later."
+              >
+                <ComboSelect
+                  name="supplierId"
+                  newName="supplierName"
+                  options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                  defaultValue={editing?.supplierId ?? ""}
+                  emptyLabel="— not recorded —"
+                  placeholder="e.g. Quiapo Restaurant Supply"
+                  addLabel="+ Add a new supplier"
+                />
               </Field>
               <Field label="Condition" name="condition" required>
                 <Select id="condition" name="condition" defaultValue={editing?.condition ?? "GOOD"}>
@@ -275,7 +293,7 @@ export default async function AssetsPage({
         columns={[
           { header: "Tag", cell: (a) => a.tag },
           { header: "What it is", cell: (a) => a.name },
-          { header: "Category", cell: (a) => CATEGORY_LABELS[a.category] },
+          { header: "Category", cell: (a) => a.category },
           { header: "Where", cell: (a) => whereIs(a) },
           { header: "Cost", numeric: true, cell: (a) => formatPHP(a.acquisitionCost) },
           {

@@ -1,6 +1,7 @@
 "use server";
 
 import { assetAssignmentSchema, assetSchema } from "@/lib/validation/masterdata";
+import type { ScopedDb } from "@/lib/db";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 /**
@@ -24,6 +25,49 @@ function locationPair(
   return { ok: true, type, id };
 }
 
+/**
+ * A category typed into the asset form is kept, so the next one can pick it from the
+ * list. Failing to remember it must never fail the save — the asset matters, the lookup
+ * row is a convenience. Mirrors how job titles work on the employee form.
+ */
+async function rememberCategory(ctx: { db: ScopedDb }, name: string): Promise<void> {
+  try {
+    await ctx.db.assetCategory.upsert({
+      where: { companyId_name: { companyId: ctx.db.$companyId, name } },
+      update: { isActive: true },
+      create: { companyId: ctx.db.$companyId, name },
+    });
+  } catch (error) {
+    console.error("[rememberCategory]", error);
+  }
+}
+
+/**
+ * A supplier typed rather than chosen. Only a name is known at this point — you are
+ * recording a fryer, not onboarding a vendor — so a stub is created and the rest is
+ * filled in on /suppliers later. Matching an existing name rather than creating a
+ * duplicate is the point: "Caltex LPG Dealer" typed twice is one supplier.
+ *
+ * Unlike a category, failing here DOES fail the save: the asset would otherwise be
+ * written with no supplier at all, silently losing what was typed.
+ */
+async function resolveSupplier(
+  ctx: { db: ScopedDb },
+  supplierId: string | null,
+  typedName: string | undefined,
+): Promise<{ id: string | null; created: string | null }> {
+  const name = typedName?.trim();
+  if (!name) return { id: supplierId, created: null };
+
+  const existing = await ctx.db.supplier.findFirst({ where: { name } });
+  if (existing) return { id: existing.id, created: null };
+
+  const created = await ctx.db.supplier.create({
+    data: { companyId: ctx.db.$companyId, name, leadTimeDays: 1 },
+  });
+  return { id: created.id, created: created.name };
+}
+
 export async function saveAsset(id: string | null, formData: FormData): Promise<ActionResult> {
   try {
     const ctx = await withPermission("masterdata.write");
@@ -33,15 +77,27 @@ export async function saveAsset(id: string | null, formData: FormData): Promise<
     const where = locationPair(parsed.data.locationType, parsed.data.locationId);
     if (!where.ok) return { ok: false, error: where.error };
 
+    const supplier = await resolveSupplier(
+      ctx,
+      nullable(parsed.data.supplierId),
+      parsed.data.supplierName,
+    );
+
+    const { supplierName: _typed, ...fields } = parsed.data;
     const data = {
-      ...parsed.data,
+      ...fields,
       serialNo: nullable(parsed.data.serialNo),
-      supplierId: nullable(parsed.data.supplierId),
+      supplierId: supplier.id,
       notes: nullable(parsed.data.notes),
       acquiredOn: new Date(parsed.data.acquiredOn),
       locationType: where.type as never,
       locationId: where.id,
     };
+
+    await rememberCategory(ctx, parsed.data.category);
+    const andSupplier = supplier.created
+      ? ` ${supplier.created} was added to suppliers — fill in their contact and lead time on the Suppliers screen.`
+      : "";
 
     if (id) {
       const before = await ctx.db.asset.findUnique({ where: { id } });
@@ -73,7 +129,7 @@ export async function saveAsset(id: string | null, formData: FormData): Promise<
 
       await audit(ctx, "UPDATE", "Asset", id, before, after);
       refresh("/assets", "/carts");
-      return { ok: true, id, message: `${after.tag} saved.` };
+      return { ok: true, id, message: `${after.tag} saved.${andSupplier}` };
     }
 
     const created = await ctx.db.asset.create({
@@ -94,7 +150,7 @@ export async function saveAsset(id: string | null, formData: FormData): Promise<
     }
     await audit(ctx, "CREATE", "Asset", created.id, null, created);
     refresh("/assets", "/carts");
-    return { ok: true, id: created.id, message: `${created.tag} added.` };
+    return { ok: true, id: created.id, message: `${created.tag} added.${andSupplier}` };
   } catch (error) {
     return toActionError(error);
   }

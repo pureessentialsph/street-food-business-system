@@ -63,6 +63,26 @@ export async function seedMasterData(db: Db, companyId: string) {
     });
   }
 
+  // ----------------------------------------------------------- asset categories
+  // Seeded suggestions only, same as positions. A category typed into the asset form
+  // joins this list, so the kit vocabulary grows with the business.
+  const assetCategories = [
+    { name: "Cooking equipment", sortOrder: 1 },
+    { name: "Cart / vehicle", sortOrder: 2 },
+    { name: "Container", sortOrder: 3 },
+    { name: "Utensil", sortOrder: 4 },
+    { name: "Furniture", sortOrder: 5 },
+    { name: "Electronics", sortOrder: 6 },
+    { name: "Other", sortOrder: 7 },
+  ];
+  for (const category of assetCategories) {
+    await db.assetCategory.upsert({
+      where: { companyId_name: { companyId, name: category.name } },
+      update: { sortOrder: category.sortOrder },
+      create: { ...co, ...category },
+    });
+  }
+
   // ------------------------------------------------------ compensation schemes
   // An earlier seed used a longer name for the same scheme; rename in place so the
   // employees already pointing at it keep their link.
