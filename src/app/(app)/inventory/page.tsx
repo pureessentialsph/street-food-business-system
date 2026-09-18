@@ -172,6 +172,13 @@ export default async function InventoryPage({
               <Field label="Quantity (pieces)" name="qty" required>
                 <NumberInput id="qty" name="qty" required placeholder="0" />
               </Field>
+              <Field
+                label="Unit cost (₱ per piece)"
+                name="unitCost"
+                hint="Only used when bringing stock in. Blank values it at what this item already averages here — required for an item's first stock, or it would come in at ₱0 and sell at no cost."
+              >
+                <NumberInput id="unitCost" name="unitCost" placeholder="running average" />
+              </Field>
               <Field label="Reason" name="reason" required hint="Required. This is what someone reads in six months' time.">
                 <TextInput id="reason" name="reason" required placeholder="e.g. dropped tray at Recto, 40 fishballs" />
               </Field>

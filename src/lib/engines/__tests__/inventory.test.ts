@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { dec } from "@/lib/money";
-import { applyMovement, movementSummary, replay, stockValue, transferPair } from "../inventory";
+import {
+  adjustmentUnitCost, applyMovement, movementSummary, replay, stockValue, transferPair,
+} from "../inventory";
 
 const empty = { qty: dec(0), avgUnitCost: dec(0) };
 
@@ -73,5 +75,55 @@ describe("inventory — transfers", () => {
   it("refuses a zero or negative transfer", () => {
     expect(() => transferPair(0, "0.45")).toThrow();
     expect(() => transferPair(-10, "0.45")).toThrow();
+  });
+});
+
+/**
+ * Stock brought in by a manual adjustment used to be valued at whatever the item
+ * already averaged — which is ₱0 for an item that has never had any, so the first
+ * stock of anything entered worthless and everything sold from it reported no cost
+ * of goods. That is what "sold goods at zero cost" on the dashboard was.
+ */
+describe("what a manual adjustment values a piece at", () => {
+  const cost = (result: ReturnType<typeof adjustmentUnitCost>) =>
+    result.ok ? result.unitCost.toFixed(2) : "REFUSED";
+
+  it("uses the cost entered when stock comes in", () => {
+    const result = adjustmentUnitCost({ direction: "IN", enteredCost: "3.75", runningAverage: "0" });
+    expect(cost(result)).toBe("3.75");
+    expect(result.ok && result.enteredCostIgnored).toBe(false);
+  });
+
+  it("falls back to the running average when the field is left blank", () => {
+    expect(cost(adjustmentUnitCost({ direction: "IN", enteredCost: undefined, runningAverage: "2.40" })))
+      .toBe("2.40");
+    expect(cost(adjustmentUnitCost({ direction: "IN", enteredCost: "", runningAverage: "2.40" })))
+      .toBe("2.40");
+  });
+
+  it("refuses a blank cost for an item with no cost yet, rather than booking it at zero", () => {
+    const result = adjustmentUnitCost({ direction: "IN", enteredCost: undefined, runningAverage: "0" });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.needsUnitCost).toBe(true);
+  });
+
+  it("accepts an explicit zero — some stock really is free", () => {
+    const result = adjustmentUnitCost({ direction: "IN", enteredCost: "0", runningAverage: "0" });
+    expect(cost(result)).toBe("0.00");
+  });
+
+  it("values stock going out at the running average, whatever was typed", () => {
+    const result = adjustmentUnitCost({ direction: "OUT", enteredCost: "999", runningAverage: "2.40" });
+    expect(cost(result)).toBe("2.40");
+    expect(result.ok && result.enteredCostIgnored).toBe(true);
+  });
+
+  it("does not claim to have ignored a cost nobody entered", () => {
+    const result = adjustmentUnitCost({ direction: "OUT", enteredCost: undefined, runningAverage: "2.40" });
+    expect(result.ok && result.enteredCostIgnored).toBe(false);
+  });
+
+  it("never refuses an OUT movement for want of a cost — waste must always be recordable", () => {
+    expect(adjustmentUnitCost({ direction: "OUT", enteredCost: undefined, runningAverage: "0" }).ok).toBe(true);
   });
 });

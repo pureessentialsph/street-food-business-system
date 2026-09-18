@@ -279,6 +279,8 @@ PhysicalCountLine countId, itemType, itemId, systemQty, countedQty, variance
 
 Transfers create **paired ledger rows** (`TRANSFER_OUT` at source, `TRANSFER_IN` at destination) so nothing evaporates. `StockBalance` is a performance cache — a `pnpm rebuild:balances` script must be able to reconstruct it entirely from the ledger, and a test must assert ledger sum === cached balance.
 
+**Manual adjustments take a unit cost, and only on the way in.** Under weighted-average costing what leaves is worth the running average by definition, so a cost entered against an `OUT` movement is ignored and reported as ignored — obeying it would be a way to write any cost-of-goods figure you liked. Coming `IN`, a blank cost means "value it at the running average", which is meaningless for an item that has never had stock here: it would book the goods at ₱0 and every piece sold from them would report no cost of goods. The first stock of an item therefore has to say what it cost; an explicit `0` is accepted, for goods that really were free. The rule lives in `adjustmentUnitCost` in the pure engine so it can be tested without a session. A purchase order remains the proper route for costed stock — adjustments are for corrections and opening balances.
+
 ### 5.5 Shifts and sales (the core loop)
 
 ```

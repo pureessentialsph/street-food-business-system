@@ -2,10 +2,11 @@
 
 import { z } from "zod";
 import { businessDateFor, toDateColumn } from "@/lib/businessDate";
-import { dec } from "@/lib/money";
+import { dec, formatPHP } from "@/lib/money";
 import { costPerPiece } from "@/lib/engines/costing";
+import { adjustmentUnitCost } from "@/lib/engines/inventory";
 import { nextReference, onHand, postLedger, rebuildBalances, type LedgerEntry } from "@/lib/inventory-service";
-import { decimalString } from "@/lib/validation/masterdata";
+import { decimalString, optionalNonNegativeDecimal } from "@/lib/validation/masterdata";
 import { assertScope } from "@/lib/rbac";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
@@ -410,6 +411,8 @@ const adjustmentSchema = locationSchema.extend({
   qty: decimalString("Quantity", { min: 0, allowZero: false }),
   direction: z.enum(["IN", "OUT"]),
   type: z.enum(["WASTE", "SPOILAGE", "DAMAGE", "ADJUSTMENT"]),
+  /** Only meaningful on the way in — see postAdjustment. Blank = the running average. */
+  unitCost: optionalNonNegativeDecimal("Unit cost"),
   reason: z.string().trim().min(3, "Say what happened — this is the audit trail"),
 });
 
@@ -423,13 +426,30 @@ export async function postAdjustment(formData: FormData): Promise<ActionResult> 
     const balance = await onHand(ctx.db, data.itemType, data.itemId, data.locationType, data.locationId);
     const qty = data.direction === "OUT" ? dec(data.qty).negated() : dec(data.qty);
 
+    const costing = adjustmentUnitCost({
+      direction: data.direction,
+      enteredCost: data.unitCost,
+      runningAverage: balance.avgUnitCost,
+    });
+    if (!costing.ok) {
+      return {
+        ok: false,
+        error:
+          "This item has no cost on record here, so bringing stock in would value it at ₱0 " +
+          "and anything sold from it would show no cost of goods. Enter a unit cost — or 0 " +
+          "if the stock really was free.",
+        fieldErrors: { unitCost: ["Required for the first stock of an item"] },
+      };
+    }
+    const unitCost = costing.unitCost;
+
     await postLedger(ctx.db, [{
       itemType: data.itemType,
       itemId: data.itemId,
       locationType: data.locationType,
       locationId: data.locationId,
       qty: qty.toFixed(4),
-      unitCost: balance.avgUnitCost,
+      unitCost: unitCost.toFixed(4),
       type: data.type,
       refType: "Manual",
       refId: ctx.user.id,
@@ -438,7 +458,15 @@ export async function postAdjustment(formData: FormData): Promise<ActionResult> 
     }], ctx.user.id);
 
     refresh("/inventory");
-    return { ok: true, message: `${data.type.toLowerCase()} of ${dec(data.qty).toFixed(0)} posted.` };
+    const valued = `at ${formatPHP(unitCost)} each`;
+    return {
+      ok: true,
+      message:
+        `${data.type.toLowerCase()} of ${dec(data.qty).toFixed(0)} posted ${valued}` +
+        (costing.enteredCostIgnored
+          ? " — the cost you entered was ignored; stock leaves at its running average."
+          : "."),
+    };
   } catch (error) {
     return toActionError(error);
   }

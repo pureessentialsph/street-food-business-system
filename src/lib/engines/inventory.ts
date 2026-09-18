@@ -73,6 +73,44 @@ export function movementSummary(movements: (LedgerMovement & { type: string })[]
   return { inQty, outQty, netQty: inQty.minus(outQty) };
 }
 
+/**
+ * What a manual adjustment values a piece at.
+ *
+ * Cost is an input on the way IN and never on the way OUT: under weighted-average
+ * costing what leaves is worth the running average by definition, so naming a cost for
+ * departing stock would be a way to write any cost-of-goods figure you liked. An
+ * entered cost is therefore reported as ignored rather than half-obeyed.
+ *
+ * Blank means "value it at the average". That is meaningless when there is no average
+ * yet — it would book stock at zero and every piece sold from it would report no cost
+ * of goods — so the first stock of an item has to say what it cost. An explicit 0 is
+ * still accepted, for goods that really were free.
+ */
+export type AdjustmentCosting =
+  | { ok: true; unitCost: Decimal; enteredCostIgnored: boolean }
+  | { ok: false; needsUnitCost: true };
+
+export function adjustmentUnitCost({
+  direction, enteredCost, runningAverage,
+}: {
+  direction: "IN" | "OUT";
+  /** undefined = the field was left blank. */
+  enteredCost: Decimal | string | number | undefined | null;
+  runningAverage: Decimal | string | number;
+}): AdjustmentCosting {
+  const average = dec(runningAverage);
+  const blank = enteredCost === undefined || enteredCost === null || enteredCost === "";
+
+  if (direction === "OUT") {
+    return { ok: true, unitCost: average, enteredCostIgnored: !blank };
+  }
+  if (!blank) {
+    return { ok: true, unitCost: dec(enteredCost), enteredCostIgnored: false };
+  }
+  if (average.isZero()) return { ok: false, needsUnitCost: true };
+  return { ok: true, unitCost: average, enteredCostIgnored: false };
+}
+
 /** A transfer must move the same quantity out of one place and into another. */
 export function transferPair(
   qty: Decimal | string | number,
