@@ -4,6 +4,24 @@ import type { NextAuthConfig } from "next-auth";
  * Edge-safe half of the auth setup: no Prisma, no bcrypt. Middleware imports this one
  * so the login gate can run at the edge; src/lib/auth.ts adds the credentials provider.
  */
+/**
+ * The single definition of "signed in", shared by everything that asks.
+ *
+ * There are three such places — the middleware gate, requireUser() on every page and
+ * action, and the login page deciding whether to bounce someone to the dashboard — and
+ * they MUST agree. When the gate and requireUser() disagreed, a half-valid token got
+ * waved through and died on the page with a 500. When the login page and the gate
+ * disagreed, the same token sent the browser round /login -> /dashboard -> /login until
+ * it gave up with ERR_TOO_MANY_REDIRECTS. A session token can decode cleanly and still
+ * carry none of our fields, and Auth.js hands back a user object either way, so the
+ * object existing proves nothing: only the fields the app actually needs do.
+ */
+export function isSignedIn<T extends { id?: string | null; companyId?: string | null }>(
+  user: T | null | undefined,
+): user is T & { id: string; companyId: string } {
+  return Boolean(user?.id && user.companyId);
+}
+
 export const authConfig = {
   pages: { signIn: "/login" },
   session: { strategy: "jwt", maxAge: 60 * 60 * 12 },
@@ -11,18 +29,9 @@ export const authConfig = {
   providers: [],
   callbacks: {
     authorized({ auth, request }) {
-      /**
-       * Must agree with requireUser() on what "signed in" means. A session token can
-       * decode cleanly and still carry none of our fields — Auth.js hands back a user
-       * object either way — and when that happened the gate waved the request through
-       * and every page died on requireUser() with a raw 500 instead of asking the
-       * operator to sign in again. Check the fields the app actually needs.
-       */
-      const sessionUser = auth?.user;
-      const signedIn = Boolean(sessionUser?.id && sessionUser.companyId);
       const { pathname } = request.nextUrl;
       if (pathname === "/login") return true;
-      return signedIn;
+      return isSignedIn(auth?.user);
     },
     jwt({ token, user }) {
       if (user) {

@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { authConfig } from "../auth.config";
+import { authConfig, isSignedIn } from "../auth.config";
 import { toActionError } from "../actions/errors";
 
 /**
@@ -64,4 +65,57 @@ describe("toActionError", () => {
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.error).toContain("already used");
   });
+});
+
+/**
+ * The redirect loop. The login page decides whether an arriving browser is already
+ * signed in and should go to the dashboard; the gate decides whether a browser asking
+ * for the dashboard is signed in and may stay. Answer differently and the two hand the
+ * request back and forth until the browser gives up with ERR_TOO_MANY_REDIRECTS —
+ * which is exactly what a token that decoded but carried no fields did.
+ */
+describe("everything that asks whether someone is signed in", () => {
+  const cases: { what: string; user: unknown }[] = [
+    { what: "a full session", user: { id: "u1", companyId: "c1" } },
+    { what: "a token with no fields", user: {} },
+    { what: "empty strings", user: { id: "", companyId: "" } },
+    { what: "a user with no company", user: { id: "u1" } },
+    { what: "a company with no user", user: { companyId: "c1" } },
+    { what: "no session at all", user: null },
+  ];
+
+  for (const { what, user } of cases) {
+    it(`agrees about ${what}`, () => {
+      const loginPageWouldBounceToDashboard = isSignedIn(user as never);
+      const gateWouldAllowTheDashboard = gate({
+        auth: (user === null ? null : { user }) as never,
+        request: { nextUrl: { pathname: "/dashboard" } } as never,
+      });
+      // If the login page sends them on but the gate turns them back, they loop forever.
+      expect(loginPageWouldBounceToDashboard).toBe(gateWouldAllowTheDashboard);
+    });
+  }
+});
+
+/**
+ * The agreement above only holds while all three places actually call isSignedIn. The
+ * loop happened because the login page kept its own looser test — `if (session?.user)`
+ * — long after the gate had been tightened, and nothing in the suite noticed. Reading
+ * the sources is blunt, but it is the thing that was wrong.
+ */
+describe("the three places that decide whether someone is signed in", () => {
+  const callers = [
+    "src/lib/auth.config.ts", // the middleware gate
+    "src/lib/auth.ts",        // requireUser, on every page and action
+    "src/app/(auth)/login/page.tsx", // the bounce to the dashboard
+  ];
+
+  for (const file of callers) {
+    it(`${file} asks isSignedIn rather than rolling its own test`, () => {
+      const source = readFileSync(file, "utf8");
+      expect(source).toContain("isSignedIn");
+      // the loose test that caused the loop: a user object existing proves nothing
+      expect(source).not.toMatch(/if\s*\(\s*session\??\.user\s*\)/);
+    });
+  }
 });

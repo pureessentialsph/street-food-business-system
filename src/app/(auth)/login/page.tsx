@@ -1,10 +1,16 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { isSignedIn } from "@/lib/auth.config";
 import { LoginForm } from "./login-form";
 
 export default async function LoginPage() {
   const session = await auth();
-  if (session?.user) redirect("/dashboard");
+  /**
+   * Must be the same test the middleware applies, or the two bounce the browser between
+   * each other: this page sending a half-valid token on to /dashboard, the gate sending
+   * it straight back, until the browser gives up with ERR_TOO_MANY_REDIRECTS.
+   */
+  if (isSignedIn(session?.user)) redirect("/dashboard");
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-stone-100 px-4">

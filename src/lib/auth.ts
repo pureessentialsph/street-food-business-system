@@ -3,7 +3,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { authConfig } from "./auth.config";
+import { authConfig, isSignedIn } from "./auth.config";
 import { rawDb } from "./db";
 import type { SessionUser } from "./rbac";
 
@@ -84,7 +84,7 @@ export async function hashPassword(plain: string): Promise<string> {
 export async function requireUser(): Promise<SessionUser> {
   const session = await auth();
   const user = session?.user;
-  if (!user?.id || !user.companyId) redirect("/login");
+  if (!isSignedIn(user)) redirect("/login");
   return {
     id: user.id,
     companyId: user.companyId,
