@@ -1,7 +1,7 @@
 "use server";
 
 import {
-  branchSchema, cartSchema, compensationSchemeSchema, employeeSchema, ingredientSchema,
+  branchSchema, cartSchema, companySchema, compensationSchemeSchema, employeeSchema, ingredientSchema,
   locationSchema, priceListItemSchema, productCategorySchema, productSchema,
   setComponentSchema, setCreditSchema, setDefinitionSchema, supplierSchema,
 } from "@/lib/validation/masterdata";
@@ -300,6 +300,85 @@ export async function savePrice(priceListId: string, formData: FormData): Promis
   }
 }
 
+// ------------------------------------------------------------------ positions
+/**
+ * The job-title list offered in the employee form. Employee.position is free text and
+ * a copy, not a reference (see the Position model), so adding or removing a title here
+ * only changes what the dropdown offers — nobody's employment record is rewritten.
+ */
+export async function savePosition(formData: FormData): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("company.manage");
+    const raw = formData.get("name");
+    const name = typeof raw === "string" ? raw.trim() : "";
+    if (name.length < 2) return { ok: false, error: "Type a job title of at least 2 characters." };
+    if (name.length > 60) return { ok: false, error: "Job title must be 60 characters or fewer." };
+
+    const created = await ctx.db.position.upsert({
+      where: { companyId_name: { companyId: ctx.db.$companyId, name } },
+      update: { isActive: true },
+      create: { companyId: ctx.db.$companyId, name },
+    });
+    await audit(ctx, "CREATE", "Position", created.id, null, created);
+    refresh("/settings", "/employees");
+    return { ok: true, id: created.id, message: `${name} added.` };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function deletePosition(id: string): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("company.manage");
+    const before = await ctx.db.position.findUnique({ where: { id } });
+    if (!before) return { ok: false, error: "That job title is already gone." };
+    await ctx.db.position.delete({ where: { id } });
+    await audit(ctx, "DELETE", "Position", id, before, null);
+    refresh("/settings", "/employees");
+    return { ok: true, message: `${before.name} removed from the list.` };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+// -------------------------------------------------------------------- company
+/**
+ * Company settings. The scoped client already pins every query to this tenant, so the
+ * id is never taken from the form — a settings page must not be a way to edit another
+ * operator's company.
+ */
+export async function saveCompany(formData: FormData): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("company.manage");
+    const parsed = parseForm(companySchema, formData);
+    if (!parsed.ok) return parsed.result;
+
+    const before = await ctx.db.company.findFirst({ where: { id: ctx.db.$companyId } });
+    if (!before) return { ok: false, error: "That company no longer exists." };
+
+    const after = await ctx.db.company.update({
+      where: { id: ctx.db.$companyId },
+      data: {
+        name: parsed.data.name,
+        timezone: parsed.data.timezone,
+        businessDayCutoffHour: Number(parsed.data.businessDayCutoffHour),
+        cashVarianceThreshold: parsed.data.cashVarianceThreshold,
+        defaultWastagePct: parsed.data.defaultWastagePct ?? before.defaultWastagePct,
+      },
+    });
+
+    await audit(ctx, "UPDATE", "Company", after.id, before, after);
+    /**
+     * The cutoff hour decides which business day a closing belongs to, so everything
+     * that reports by date is now reading a different boundary.
+     */
+    refresh("/settings", "/dashboard", "/shifts", "/reports");
+    return { ok: true, id: after.id, message: "Company settings saved." };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
 // ---------------------------------------------------------------- compensation
 export async function saveCompensationScheme(id: string | null, formData: FormData): Promise<ActionResult> {
   try {
@@ -317,14 +396,14 @@ export async function saveCompensationScheme(id: string | null, formData: FormDa
       if (!before) return { ok: false, error: "That scheme no longer exists." };
       const after = await ctx.db.compensationScheme.update({ where: { id }, data });
       await audit(ctx, "UPDATE", "CompensationScheme", id, before, after);
-      refresh("/settings/compensation");
+      refresh("/settings");
       return { ok: true, id, message: `${after.name} saved.` };
     }
     const created = await ctx.db.compensationScheme.create({
       data: { ...data, companyId: ctx.db.$companyId },
     });
     await audit(ctx, "CREATE", "CompensationScheme", created.id, null, created);
-    refresh("/settings/compensation");
+    refresh("/settings");
     return { ok: true, id: created.id, message: `${created.name} created.` };
   } catch (error) {
     return toActionError(error);

@@ -134,6 +134,35 @@ export const priceListItemSchema = z.object({
   pricePerStick: decimalString("Price per stick", { min: 0, allowZero: false }),
 });
 
+/**
+ * Company settings. `code` and `currency` are deliberately absent: the code is what a
+ * user types at sign-in to tell two operators with the same email apart, and every
+ * money figure already written is denominated in the currency — neither can be changed
+ * after the fact without rewriting history.
+ */
+export const companySchema = z.object({
+  name,
+  timezone: z
+    .string()
+    .trim()
+    .min(1, "Timezone is required")
+    .refine((value) => {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: value });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Not a timezone this system recognises, e.g. Asia/Manila"),
+  businessDayCutoffHour: z
+    .string()
+    .trim()
+    .regex(/^\d{1,2}$/, "Hour must be a whole number")
+    .refine((v) => Number(v) >= 0 && Number(v) <= 23, "Hour must be between 0 and 23"),
+  cashVarianceThreshold: decimalString("Cash variance threshold"),
+  defaultWastagePct: optionalNonNegativeDecimal("Default wastage %"),
+});
+
 export const compensationSchemeSchema = z.object({
   name,
   baseDailyRate: decimalString("Base daily rate"),
