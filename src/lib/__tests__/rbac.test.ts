@@ -32,7 +32,12 @@ describe("rbac", () => {
     const vendor = user({ role: "VENDOR" });
     expect(can(vendor, "shift.close")).toBe(false);
     expect(can(vendor, "cost.read")).toBe(false);
-    expect(navFor(vendor).map((n) => n.href)).toEqual(["/dashboard"]);
+    /**
+     * The dashboard and the guide, and nothing else. The guide is deliberately ungated:
+     * it is help text, it exposes no data, and someone who cannot work out how to use
+     * the system is the last person who should be denied the instructions.
+     */
+    expect(navFor(vendor).map((n) => n.href)).toEqual(["/dashboard", "/guide"]);
   });
 
   it("shows an owner and a supervisor different navigation", () => {

@@ -136,6 +136,7 @@ export const NAV: NavItem[] = [
   { href: "/procurement", label: "Procurement", permission: "procurement.approve" },
   { href: "/reports", label: "P&L", permission: "reports.read" },
   { href: "/settings", label: "Settings", permission: "company.manage" },
+  { href: "/guide", label: "Guide" },
 ];
 
 export function navFor(user: SessionUser): NavItem[] {
