@@ -3,7 +3,7 @@
 import {
   branchSchema, cartSchema, companySchema, compensationSchemeSchema, employeeSchema, ingredientSchema,
   locationSchema, priceListItemSchema, productCategorySchema, productSchema,
-  setComponentSchema, setCreditSchema, setDefinitionSchema, supplierSchema,
+  setComponentSchema, setCreditSchema, setDefinitionSchema, supplierIngredientSchema, supplierSchema,
 } from "@/lib/validation/masterdata";
 import { assertScope } from "@/lib/rbac";
 import type { ScopedDb } from "@/lib/db";
@@ -149,6 +149,83 @@ export async function saveSupplier(id: string | null, formData: FormData): Promi
     await audit(ctx, "CREATE", "Supplier", created.id, null, created);
     refresh("/suppliers");
     return { ok: true, id: created.id, message: `${created.name} created.` };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Link an ingredient to a supplier: how they sell it, what a pack holds, what it costs.
+ *
+ * Procurement is blocked without this. The replenishment suggestions read each
+ * ingredient's PREFERRED supplier to decide who to order from, what pack to order in and
+ * what lead time to plan against; an ingredient with no preferred link can never appear
+ * on a purchase order at all.
+ */
+export async function saveSupplierIngredient(
+  supplierId: string,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("masterdata.write");
+    const parsed = parseForm(supplierIngredientSchema, formData);
+    if (!parsed.ok) return parsed.result;
+
+    const supplier = await ctx.db.supplier.findUnique({ where: { id: supplierId } });
+    if (!supplier) return { ok: false, error: "That supplier no longer exists." };
+    const ingredient = await ctx.db.ingredient.findUnique({ where: { id: parsed.data.ingredientId } });
+    if (!ingredient) return { ok: false, error: "That ingredient no longer exists." };
+
+    const existing = await ctx.db.supplierIngredient.findFirst({
+      where: { supplierId, ingredientId: parsed.data.ingredientId },
+    });
+
+    /**
+     * One preferred supplier per ingredient, or the suggestion engine picks whichever
+     * row the database happens to return first — and next week silently picks the other.
+     */
+    if (parsed.data.isPreferred) {
+      await ctx.db.supplierIngredient.updateMany({
+        where: { ingredientId: parsed.data.ingredientId, isPreferred: true },
+        data: { isPreferred: false },
+      });
+    }
+
+    const after = existing
+      ? await ctx.db.supplierIngredient.update({ where: { id: existing.id }, data: parsed.data })
+      : await ctx.db.supplierIngredient.create({
+          data: { ...parsed.data, supplierId, companyId: ctx.db.$companyId },
+        });
+
+    await audit(ctx, existing ? "UPDATE" : "CREATE", "SupplierIngredient", after.id, existing, after);
+    refresh("/suppliers", "/procurement", "/ingredients");
+    return {
+      ok: true,
+      id: after.id,
+      message: `${ingredient.name} from ${supplier.name} saved${parsed.data.isPreferred ? " as the preferred source" : ""}.`,
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function removeSupplierIngredient(id: string): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("masterdata.write");
+    const before = await ctx.db.supplierIngredient.findUnique({
+      where: { id },
+      include: { ingredient: { select: { name: true } } },
+    });
+    if (!before) return { ok: false, error: "That link is already gone." };
+    await ctx.db.supplierIngredient.delete({ where: { id } });
+    await audit(ctx, "DELETE", "SupplierIngredient", id, before, null);
+    refresh("/suppliers", "/procurement", "/ingredients");
+    return {
+      ok: true,
+      message: before.isPreferred
+        ? `${before.ingredient.name} removed. It now has no preferred supplier, so procurement cannot order it.`
+        : `${before.ingredient.name} removed from this supplier.`,
+    };
   } catch (error) {
     return toActionError(error);
   }

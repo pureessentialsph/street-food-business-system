@@ -2,12 +2,15 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can } from "@/lib/rbac";
-import { deleteRecord, saveSupplier, setActive } from "@/lib/actions/masterdata";
+import {
+  deleteRecord, removeSupplierIngredient, saveSupplier, saveSupplierIngredient, setActive,
+} from "@/lib/actions/masterdata";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
-import { ArchiveButton, DeleteButton, EntityForm } from "@/components/entity-form";
+import { ArchiveButton, DeleteButton, EntityForm, RemoveButton } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge, Checkbox, Field, TextArea, TextInput } from "@/components/ui/field";
+import { Badge, Checkbox, Field, NumberInput, Select, TextArea, TextInput } from "@/components/ui/field";
+import { formatPHP } from "@/lib/money";
 
 export default async function SuppliersPage({
   searchParams,
@@ -28,6 +31,26 @@ export default async function SuppliersPage({
   });
 
   const editing = params.edit ? await db.supplier.findUnique({ where: { id: params.edit } }) : null;
+
+  /**
+   * What this supplier sells, and every ingredient, so the list can be extended. Also
+   * which ingredients have no preferred source anywhere — those can never be ordered.
+   */
+  const [supplied, ingredients, unsourced] = editing
+    ? await Promise.all([
+        db.supplierIngredient.findMany({
+          where: { supplierId: editing.id },
+          include: { ingredient: { select: { name: true, baseUnit: true } } },
+          orderBy: { ingredient: { name: "asc" } },
+        }),
+        db.ingredient.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+        db.ingredient.findMany({
+          where: { isActive: true, suppliers: { none: { isPreferred: true } } },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        }),
+      ])
+    : [[], [], []];
   const showForm = writable && (params.new === "1" || editing);
 
   return (
@@ -65,6 +88,119 @@ export default async function SuppliersPage({
                 <Checkbox label="Active" name="isActive" defaultChecked={editing?.isActive ?? true} />
               </div>
             </EntityForm>
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {editing && writable ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>What {editing.name} supplies</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <p className="text-sm text-stone-600">
+              Procurement needs this. An ingredient with no preferred supplier can never appear
+              on a purchase order, because nothing says who to buy it from, what pack it comes in
+              or how long it takes to arrive.
+            </p>
+
+            {supplied.length === 0 ? (
+              <p className="text-sm text-stone-500">Nothing linked to this supplier yet.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-md border border-stone-200">
+                <table className="w-full min-w-[620px] text-sm">
+                  <thead className="bg-stone-50 text-xs uppercase tracking-wide text-stone-500">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Ingredient</th>
+                      <th className="px-3 py-2 text-left">Sold as</th>
+                      <th className="px-3 py-2 text-right">Per pack</th>
+                      <th className="px-3 py-2 text-right">Price</th>
+                      <th className="px-3 py-2 text-left">Preferred</th>
+                      <th className="px-3 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {supplied.map((link) => (
+                      <tr key={link.id}>
+                        <td className="px-3 py-2 font-medium">{link.ingredient.name}</td>
+                        <td className="px-3 py-2 text-stone-600">{link.purchaseUnitName}</td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums">
+                          {link.baseUnitsPerPurchaseUnit.toFixed(0)}{" "}
+                          <span className="text-xs text-stone-500">
+                            {link.ingredient.baseUnit === "G" ? "g" : link.ingredient.baseUnit === "ML" ? "ml" : "pcs"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums">
+                          {formatPHP(link.lastPurchasePrice)}
+                        </td>
+                        <td className="px-3 py-2">
+                          {link.isPreferred ? <Badge tone="success">preferred</Badge> : <span className="text-stone-400">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <RemoveButton
+                            label="Remove"
+                            confirmText={`Stop buying ${link.ingredient.name} from ${editing.name}?${link.isPreferred ? " It is the preferred source, so it will have none until you set another." : ""}`}
+                            action={removeSupplierIngredient.bind(null, link.id)}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="rounded-md border border-stone-200 p-3">
+              <p className="mb-2 text-sm font-medium text-stone-700">Add or update an ingredient</p>
+              <EntityForm
+                action={saveSupplierIngredient.bind(null, editing.id)}
+                returnTo={`/suppliers?edit=${editing.id}`}
+                submitLabel="Save"
+              >
+                <Field label="Ingredient" name="ingredientId" required>
+                  <Select id="ingredientId" name="ingredientId" required defaultValue="">
+                    <option value="">— select —</option>
+                    {ingredients.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.name} (per {i.baseUnit === "G" ? "g" : i.baseUnit === "ML" ? "ml" : "pc"})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="How they sell it" name="purchaseUnitName" required hint="e.g. sack 25kg, tray 30pcs, tank 11kg">
+                  <TextInput id="purchaseUnitName" name="purchaseUnitName" required placeholder="sack 25kg" />
+                </Field>
+                <Field
+                  label="Base units per pack"
+                  name="baseUnitsPerPurchaseUnit"
+                  required
+                  hint="How many grams, ml or pieces one pack holds — 25000 for a 25kg sack."
+                >
+                  <NumberInput id="baseUnitsPerPurchaseUnit" name="baseUnitsPerPurchaseUnit" required placeholder="25000" />
+                </Field>
+                <Field label="Price per pack (₱)" name="lastPurchasePrice" required hint="What they last charged. Receiving a delivery updates it.">
+                  <NumberInput id="lastPurchasePrice" name="lastPurchasePrice" required placeholder="0.00" />
+                </Field>
+                <div className="flex items-end">
+                  <Checkbox
+                    label="Buy this from them by default"
+                    name="isPreferred"
+                    defaultChecked
+                  />
+                </div>
+              </EntityForm>
+            </div>
+
+            {unsourced.length > 0 ? (
+              <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <span className="font-medium">
+                  {unsourced.length} ingredient{unsourced.length === 1 ? "" : "s"} still have no
+                  preferred supplier
+                </span>{" "}
+                and cannot be ordered: {unsourced.slice(0, 8).map((i) => i.name).join(", ")}
+                {unsourced.length > 8 ? ", …" : ""}.
+              </div>
+            ) : null}
           </CardBody>
         </Card>
       ) : null}

@@ -195,11 +195,15 @@ export default async function GuidePage() {
                   record their shifts for them.
                 </p>
               </Step>
-              <Step n={12} title="Add suppliers" where="/suppliers">
+              <Step n={12} title="Add suppliers, and say what each one sells" where="/suppliers">
                 <p>
-                  Who you buy from, and their lead time — used to suggest when to reorder. You can
-                  also create one in passing from the asset form; it will be flagged here until
-                  you complete its details.
+                  Who you buy from, and their lead time. Then open a supplier and link the
+                  ingredients they supply: how they sell it (&ldquo;sack 25kg&rdquo;), how many
+                  grams or pieces a pack holds, and the price.
+                </p>
+                <p>
+                  You can also create a supplier in passing from the asset form; it is flagged
+                  here until you complete its details.
                 </p>
               </Step>
               <Step n={13} title="Record your equipment" where="/assets">
@@ -442,6 +446,15 @@ export default async function GuidePage() {
             title="9 · Buying"
             lead="Worked out from what actually sold, not from guesswork."
           >
+            <Warn>
+              Nothing can be ordered until the ingredient has a <strong>preferred supplier</strong>.
+              Set that by opening the supplier on{" "}
+              <Link href="/suppliers" className="text-brand-700 hover:underline">/suppliers</Link>{" "}
+              and linking the ingredient with its pack size and price — that is what tells the
+              system who to buy from, what pack to order in, and how long delivery takes. An
+              ingredient can have several suppliers but only one preferred; ticking a new one
+              un-ticks the old.
+            </Warn>
             <p className="text-sm text-stone-600">
               <Link href="/procurement" className="text-brand-700 hover:underline">/procurement</Link>{" "}
               suggests what to order from recent consumption, current stock, safety levels and each

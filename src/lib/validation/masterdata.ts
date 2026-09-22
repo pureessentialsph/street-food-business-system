@@ -101,6 +101,19 @@ export const supplierSchema = z.object({
   isActive: z.coerce.boolean().default(true),
 });
 
+/**
+ * What a supplier sells, and how they sell it. Procurement cannot raise an order for an
+ * ingredient until one of these exists — the supplier, the pack they deliver in, and how
+ * many base units that pack holds are all needed to turn "we need 8kg" into "order 1 sack".
+ */
+export const supplierIngredientSchema = z.object({
+  ingredientId: id,
+  purchaseUnitName: z.string().trim().min(1, "Say how they sell it, e.g. sack 25kg").max(60),
+  baseUnitsPerPurchaseUnit: decimalString("Base units per pack", { min: 0, allowZero: false }),
+  lastPurchasePrice: decimalString("Price per pack"),
+  isPreferred: z.coerce.boolean().default(false),
+});
+
 export const ingredientSchema = z.object({
   sku: code,
   name,
