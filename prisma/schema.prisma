@@ -177,6 +177,25 @@ model UserBranchScope {
   @@index([companyId, userId])
 }
 
+/**
+ * Failed sign-in counters.
+ * The ONLY model without a companyId, and deliberately so: throttling happens before
+ * anyone is authenticated, so there is no tenant yet — an email can belong to two
+ * operators, and an address hammering several companies is one attacker, not several.
+ * It holds no business data: an opaque key, a count, and two timestamps.
+ */
+model LoginThrottle {
+  id              String    @id @default(cuid())
+  /// "account:<email>|<address>" or "address:<address>". Never shown to anyone.
+  key             String    @unique
+  failures        Int       @default(0)
+  windowStartedAt DateTime  @default(now())
+  lockedUntil     DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  @@index([updatedAt])
+}
+
 model AuditLog {
   id        String   @id @default(cuid())
   companyId String

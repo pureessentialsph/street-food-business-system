@@ -5,6 +5,9 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { authConfig, isSignedIn } from "./auth.config";
 import { rawDb } from "./db";
+import {
+  addressFrom, checkLoginAllowed, clearLoginFailures, recordLoginFailure,
+} from "./login-throttle";
 import type { SessionUser } from "./rbac";
 
 export const credentialsSchema = z.object({
@@ -23,10 +26,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
         companyCode: { label: "Company code", type: "text" },
       },
-      async authorize(raw) {
+      async authorize(raw, request) {
         const parsed = credentialsSchema.safeParse(raw);
         if (!parsed.success) return null;
         const { email, password, companyCode } = parsed.data;
+
+        /**
+         * Throttle BEFORE anything expensive or revealing. Checking first means a
+         * locked-out attacker cannot use this endpoint to make the server hash
+         * passwords for them, and cannot learn whether an email exists by timing.
+         */
+        const address = addressFrom(request);
+        const throttle = await checkLoginAllowed(email, address);
+        if (throttle.lockedOut) return null;
 
         const candidates = await rawDb.user.findMany({
           where: {
@@ -41,11 +53,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         });
 
         // Email is unique per company, so an ambiguous login must name its company.
-        if (candidates.length !== 1) return null;
+        if (candidates.length !== 1) {
+          await recordLoginFailure(email, address);
+          return null;
+        }
         const user = candidates[0]!;
 
         const ok = await bcrypt.compare(password, user.passwordHash);
-        if (!ok) return null;
+        if (!ok) {
+          await recordLoginFailure(email, address);
+          return null;
+        }
+        await clearLoginFailures(email, address);
 
         await rawDb.user.update({
           where: { id: user.id },

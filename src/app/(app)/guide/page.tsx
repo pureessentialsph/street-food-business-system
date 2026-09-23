@@ -570,6 +570,12 @@ export default async function GuidePage() {
               manage the company, and there is no password-reset email to fall back on. The
               Logins screen warns you when only one is active.
             </Warn>
+            <Note>
+              Five wrong passwords in a row locks that device out of that account for fifteen
+              minutes, and the screen says how long is left. It is per device, so someone else
+              guessing at your email cannot lock you out of your own phone — and if a supervisor
+              locks themselves out, they can wait it out or an owner can set them a new password.
+            </Note>
           </GuideSection>
 
           <GuideSection
@@ -628,6 +634,11 @@ export default async function GuidePage() {
                   "You are asked to sign in again",
                   "The session expired, your password was changed on another device, or an owner deactivated the account.",
                   "Sign in again. Nothing is lost — unsaved form entries are, so re-enter those.",
+                ],
+                [
+                  "“Too many attempts. Try again in N minutes.”",
+                  "Five wrong passwords from this device in fifteen minutes.",
+                  "Wait it out, or ask an owner to set you a new password on the Logins screen.",
                 ],
                 [
                   "A record will not delete",

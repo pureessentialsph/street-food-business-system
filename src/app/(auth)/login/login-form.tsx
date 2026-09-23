@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { lockoutMinutes } from "@/lib/actions/login-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 
@@ -25,11 +26,22 @@ export function LoginForm() {
       redirect: false,
     });
 
-    setPending(false);
     if (result?.error) {
-      setError("Those credentials did not match an active account.");
+      /**
+       * Distinguish "wrong password" from "too many tries" only after the attempt has
+       * already failed, and only from the throttle bucket belonging to this address —
+       * so the message never reveals whether the email exists.
+       */
+      const minutes = await lockoutMinutes(String(form.get("email") ?? ""));
+      setPending(false);
+      setError(
+        minutes === null
+          ? "Those credentials did not match an active account."
+          : `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+      );
       return;
     }
+    setPending(false);
     router.replace("/dashboard");
     router.refresh();
   }

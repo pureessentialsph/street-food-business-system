@@ -9,7 +9,15 @@ import { isTenantModel } from "../db";
  */
 describe("tenant schema", () => {
   const models = Prisma.dmmf.datamodel.models;
-  const EXEMPT = new Set(["Company"]);
+  /**
+   * Company is the tenant itself. LoginThrottle counts failed sign-ins, which happen
+   * before anyone is authenticated — there is no tenant to scope to yet, an email can
+   * belong to two operators, and one address attacking several companies is one
+   * attacker. It stores an opaque key, a count and two timestamps: no business data.
+   *
+   * Nothing else may join this list without the same kind of reason.
+   */
+  const EXEMPT = new Set(["Company", "LoginThrottle"]);
 
   it("puts companyId on every model except Company", () => {
     const missing = models
@@ -56,5 +64,17 @@ describe("tenant schema", () => {
       m.fields.filter((f) => f.type === "Float").map((f) => `${m.name}.${f.name}`),
     );
     expect(floats).toEqual([]);
+  });
+
+  it("keeps the exemption list to the two models that have earned it", () => {
+    expect([...EXEMPT].sort()).toEqual(["Company", "LoginThrottle"]);
+  });
+
+  it("holds no business data in the unscoped throttle table", () => {
+    const throttle = models.find((m) => m.name === "LoginThrottle");
+    const fields = throttle!.fields.map((f) => f.name).sort();
+    expect(fields).toEqual(
+      ["failures", "id", "key", "lockedUntil", "updatedAt", "windowStartedAt"],
+    );
   });
 });
