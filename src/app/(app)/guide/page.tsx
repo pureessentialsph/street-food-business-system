@@ -26,6 +26,7 @@ const CONTENTS = [
   ["reports", "Knowing if you made money"],
   ["people", "Staff records"],
   ["roles", "Who can do what"],
+  ["logins", "Logins and access"],
   ["account", "Your own login"],
   ["problems", "When something looks wrong"],
 ] as const;
@@ -529,8 +530,51 @@ export default async function GuidePage() {
           </GuideSection>
 
           <GuideSection
+            id="logins"
+            title="13 · Logins and access"
+            lead="Owners and admins manage who can sign in, on /users."
+          >
+            <Steps>
+              <Step n={1} title="Add a login" where="/users">
+                <p>
+                  Email, name, role, and a starting password. Give it in person rather than by
+                  message, and have them change it on their own account page.
+                </p>
+              </Step>
+              <Step n={2} title="Tick the branches they see">
+                <p>
+                  Only area managers and supervisors need this — owners and admins see every
+                  branch regardless. A supervisor with no branches ticked sees nothing at all.
+                </p>
+              </Step>
+              <Step n={3} title="Set a password for someone locked out" where="/users">
+                <p>
+                  There is no reset email in this system, so this is the way back in. It signs
+                  them out everywhere; they should change it themselves afterwards.
+                </p>
+              </Step>
+              <Step n={4} title="Switch off a login when someone leaves">
+                <p>
+                  Untick <em>Can sign in</em>. Logins are never deleted — an account is named on
+                  every shift it closed, and that history has to keep making sense.
+                </p>
+              </Step>
+            </Steps>
+            <Note>
+              Nobody can give out a role above their own, so an admin cannot create an owner. You
+              also cannot change your own role or switch off your own login, and the last active
+              owner cannot be demoted — otherwise a single slip locks everyone out of the company.
+            </Note>
+            <Warn>
+              Keep <strong>two owner logins</strong>. With only one, losing it means nobody can
+              manage the company, and there is no password-reset email to fall back on. The
+              Logins screen warns you when only one is active.
+            </Warn>
+          </GuideSection>
+
+          <GuideSection
             id="account"
-            title="13 · Your own login"
+            title="14 · Your own login"
           >
             <p className="text-sm text-stone-600">
               Click your name at the bottom of the sidebar to open{" "}
@@ -555,7 +599,7 @@ export default async function GuidePage() {
 
           <GuideSection
             id="problems"
-            title="14 · When something looks wrong"
+            title="15 · When something looks wrong"
           >
             <Table
               head={["What you see", "What it means", "What to do"]}

@@ -221,6 +221,19 @@ export const compensationSchemeSchema = z.object({
   isActive: z.coerce.boolean().default(true),
 });
 
+/**
+ * A login. The password is deliberately not here — it is set by its own form, checked
+ * by src/lib/password.ts, and never travels alongside the fields an admin edits day to
+ * day. Editing someone's name should not require retyping their password.
+ */
+export const userSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Enter a valid email"),
+  name: z.string().trim().min(2, "Name is required").max(120),
+  role: z.enum(["OWNER", "ADMIN", "AREA_MANAGER", "SUPERVISOR", "COMMISSARY", "HR", "VENDOR"]),
+  employeeId: optionalId,
+  isActive: z.coerce.boolean().default(true),
+});
+
 export const employeeSchema = z.object({
   employeeNo: code,
   firstName: z.string().trim().min(1, "First name is required").max(60),

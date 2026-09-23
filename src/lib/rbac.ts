@@ -19,6 +19,7 @@ const COMPANY_WIDE: ReadonlySet<Role> = new Set<Role>(["OWNER", "ADMIN"]);
 
 export type Permission =
   | "company.manage"
+  | "user.manage"
   | "masterdata.write"
   | "masterdata.delete"
   | "costing.write"
@@ -39,13 +40,13 @@ export type Permission =
 
 const PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   OWNER: new Set<Permission>([
-    "company.manage", "masterdata.write", "masterdata.delete", "costing.write", "inventory.write",
+    "company.manage", "user.manage", "masterdata.write", "masterdata.delete", "costing.write", "inventory.write",
     "shift.open", "shift.close", "shift.approve", "payroll.run", "payroll.approve",
     "expense.write", "expense.approve", "procurement.approve", "employee.read",
     "employee.documents", "pay.readAll", "cost.read", "reports.read",
   ]),
   ADMIN: new Set<Permission>([
-    "masterdata.write", "masterdata.delete", "costing.write", "inventory.write", "shift.open", "shift.close",
+    "user.manage", "masterdata.write", "masterdata.delete", "costing.write", "inventory.write", "shift.open", "shift.close",
     "shift.approve", "payroll.run", "payroll.approve", "expense.write", "expense.approve",
     "procurement.approve", "employee.read", "employee.documents", "pay.readAll",
     "cost.read", "reports.read",
@@ -62,6 +63,32 @@ const PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   HR: new Set<Permission>(["employee.read", "employee.documents", "pay.readAll"]),
   VENDOR: new Set<Permission>([]),
 };
+
+/**
+ * Roles rank, and nobody may hand out a rank above their own. Without this an ADMIN —
+ * who can manage logins — could simply create an OWNER and inherit the company.
+ * OWNER is the only role that can mint another OWNER.
+ */
+const ROLE_RANK: Record<Role, number> = {
+  OWNER: 100,
+  ADMIN: 80,
+  AREA_MANAGER: 60,
+  SUPERVISOR: 40,
+  COMMISSARY: 30,
+  HR: 30,
+  VENDOR: 10,
+};
+
+export function canAssignRole(actor: SessionUser, role: Role): boolean {
+  return ROLE_RANK[role] <= ROLE_RANK[actor.role];
+}
+
+/** Roles a given actor is allowed to offer in the role dropdown. */
+export function assignableRoles(actor: SessionUser): Role[] {
+  return (Object.keys(ROLE_RANK) as Role[])
+    .filter((role) => canAssignRole(actor, role))
+    .sort((a, b) => ROLE_RANK[b] - ROLE_RANK[a]);
+}
 
 export function can(user: SessionUser, permission: Permission): boolean {
   return PERMISSIONS[user.role].has(permission);
@@ -135,6 +162,7 @@ export const NAV: NavItem[] = [
   { href: "/expenses", label: "Expenses", permission: "expense.write" },
   { href: "/procurement", label: "Procurement", permission: "procurement.approve" },
   { href: "/reports", label: "P&L", permission: "reports.read" },
+  { href: "/users", label: "Logins", permission: "user.manage" },
   { href: "/settings", label: "Settings", permission: "company.manage" },
   { href: "/guide", label: "Guide" },
 ];
