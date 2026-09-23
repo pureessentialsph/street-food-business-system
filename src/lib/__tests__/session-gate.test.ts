@@ -107,15 +107,37 @@ describe("the three places that decide whether someone is signed in", () => {
   const callers = [
     "src/lib/auth.config.ts", // the middleware gate
     "src/lib/auth.ts",        // requireUser, on every page and action
-    "src/app/(auth)/login/page.tsx", // the bounce to the dashboard
   ];
 
   for (const file of callers) {
     it(`${file} asks isSignedIn rather than rolling its own test`, () => {
       const source = readFileSync(file, "utf8");
       expect(source).toContain("isSignedIn");
-      // the loose test that caused the loop: a user object existing proves nothing
+      // the loose test that caused the first loop: a user object existing proves nothing
       expect(source).not.toMatch(/if\s*\(\s*session\??\.user\s*\)/);
     });
   }
+
+  /**
+   * The login page needs MORE than isSignedIn. A session can be structurally perfect and
+   * still unusable — the account deactivated, or the password changed since it was
+   * issued — and only loadSignedInUser knows that, because only it reads the account.
+   * Sending such a session to the dashboard makes the two redirect at each other, which
+   * is the second time this loop has shipped.
+   */
+  it("the login page defers to loadSignedInUser, which checks the account too", () => {
+    const source = readFileSync("src/app/(auth)/login/page.tsx", "utf8");
+    expect(source).toContain("loadSignedInUser");
+    expect(source).not.toMatch(/if\s*\(\s*session\??\.user\s*\)/);
+    // isSignedIn alone would pass a stale session straight into the loop
+    expect(source).not.toMatch(/isSignedIn\s*\(/);
+  });
+
+  it("requireUser is a thin wrapper, so no caller can get a laxer check", () => {
+    const source = readFileSync("src/lib/auth.ts", "utf8");
+    const body = /export async function requireUser\(\)[^{]*\{([\s\S]*?)\n\}/.exec(source)?.[1] ?? "";
+    expect(body).toContain("loadSignedInUser");
+    // the account checks belong in one place; requireUser must not re-implement them
+    expect(body).not.toContain("passwordChangedAt");
+  });
 });

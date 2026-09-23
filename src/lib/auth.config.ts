@@ -35,6 +35,15 @@ export const authConfig = {
     },
     jwt({ token, user }) {
       if (user) {
+        /**
+         * When this session was authenticated — set once, at sign-in, and carried
+         * through every later rotation because the callback returns the same token.
+         *
+         * NOT token.iat: Auth.js re-mints the JWT on each request, so iat is always
+         * a few milliseconds old and useless for deciding whether a session predates
+         * a password change.
+         */
+        token.authenticatedAt = Math.floor(Date.now() / 1000);
         token.userId = user.id as string;
         token.companyId = (user as { companyId: string }).companyId;
         token.role = (user as { role: string }).role;
@@ -47,6 +56,12 @@ export const authConfig = {
     session({ session, token }) {
       session.user = {
         ...session.user,
+        /**
+         * When this session was authenticated. requireUser compares it against the
+         * account's passwordChangedAt, so a session that predates a password change is
+         * refused however many times its token has since been rotated.
+         */
+        issuedAt: typeof token.authenticatedAt === "number" ? token.authenticatedAt : null,
         id: (token.userId as string) ?? "",
         companyId: (token.companyId as string) ?? "",
         role: (token.role as never) ?? "VENDOR",

@@ -1,16 +1,15 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
-import { isSignedIn } from "@/lib/auth.config";
+import { loadSignedInUser } from "@/lib/auth";
 import { LoginForm } from "./login-form";
 
 export default async function LoginPage() {
-  const session = await auth();
   /**
-   * Must be the same test the middleware applies, or the two bounce the browser between
-   * each other: this page sending a half-valid token on to /dashboard, the gate sending
-   * it straight back, until the browser gives up with ERR_TOO_MANY_REDIRECTS.
+   * The same test every page applies, not a looser one of its own. Send a session on to
+   * the dashboard that the dashboard will refuse — one whose password has since changed,
+   * say — and the two bounce the browser between them until it gives up with
+   * ERR_TOO_MANY_REDIRECTS.
    */
-  if (isSignedIn(session?.user)) redirect("/dashboard");
+  if (await loadSignedInUser()) redirect("/dashboard");
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-stone-100 px-4">

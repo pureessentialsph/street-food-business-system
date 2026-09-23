@@ -82,9 +82,38 @@ export async function hashPassword(plain: string): Promise<string> {
  * bounce to the login page too instead of swallowing it as a generic failure.
  */
 export async function requireUser(): Promise<SessionUser> {
+  const user = await loadSignedInUser();
+  if (!user) redirect("/login");
+  return user;
+}
+
+/**
+ * THE definition of a usable session. Every caller goes through this, the login page
+ * included — when that page and this disagree about who is signed in, the two redirect
+ * at each other until the browser gives up. That has now happened twice.
+ *
+ * Two things a token cannot tell us on its own, so both cost one indexed lookup:
+ *  - the account may have been deactivated since sign-in;
+ *  - the password may have been changed since sign-in, which has to invalidate every
+ *    session issued before it. A JWT cannot be revoked — it is valid wherever it is
+ *    held until it expires — so the account carries the stamp and we check against it.
+ */
+export async function loadSignedInUser(): Promise<SessionUser | null> {
   const session = await auth();
   const user = session?.user;
-  if (!isSignedIn(user)) redirect("/login");
+  if (!isSignedIn(user)) return null;
+
+  const account = await rawDb.user.findUnique({
+    where: { id: user.id },
+    select: { isActive: true, passwordChangedAt: true },
+  });
+  if (!account?.isActive) return null;
+
+  const predatesThePasswordChange =
+    account.passwordChangedAt !== null &&
+    (user.issuedAt === null || user.issuedAt * 1000 < account.passwordChangedAt.getTime());
+  if (predatesThePasswordChange) return null;
+
   return {
     id: user.id,
     companyId: user.companyId,

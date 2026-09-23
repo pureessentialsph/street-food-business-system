@@ -134,18 +134,22 @@ model Branch {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  companyId    String
-  email        String
-  passwordHash String
-  name         String
-  role         Role
-  employeeId   String?
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  createdById  String?
+  id                String    @id @default(cuid())
+  companyId         String
+  email             String
+  passwordHash      String
+  name              String
+  role              Role
+  employeeId        String?
+  isActive          Boolean   @default(true)
+  lastLoginAt       DateTime?
+  /// When the password was last changed. Sessions issued before this are refused, so
+  /// changing a password signs out every other device — which is the whole point when
+  /// you are changing it because it leaked.
+  passwordChangedAt DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  createdById       String?
 
   company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   scopes    UserBranchScope[]

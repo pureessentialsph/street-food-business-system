@@ -48,7 +48,13 @@ export function Sidebar({
 
   const footer = (
     <div className="border-t border-stone-200 px-4 py-3">
-      <p className="truncate text-sm font-medium text-stone-800">{userName}</p>
+      <Link
+        href="/account"
+        onClick={() => setOpen(false)}
+        className="block truncate text-sm font-medium text-stone-800 hover:underline"
+      >
+        {userName}
+      </Link>
       <p className="text-xs text-stone-500">{roleLabel}</p>
       <button
         type="button"

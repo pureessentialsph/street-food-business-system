@@ -9,6 +9,8 @@ declare module "next-auth" {
       role: Role;
       employeeId: string | null;
       scopeBranchIds: string[];
+      /** Unix seconds the token was minted; null if the claim is missing. */
+      issuedAt: number | null;
     } & DefaultSession["user"];
   }
 
@@ -22,6 +24,8 @@ declare module "next-auth" {
 
 declare module "next-auth/jwt" {
   interface JWT {
+    /** Unix seconds this session was authenticated. Survives token rotation. */
+    authenticatedAt: number;
     userId: string;
     companyId: string;
     role: Role;

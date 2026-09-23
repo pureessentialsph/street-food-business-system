@@ -26,6 +26,7 @@ const CONTENTS = [
   ["reports", "Knowing if you made money"],
   ["people", "Staff records"],
   ["roles", "Who can do what"],
+  ["account", "Your own login"],
   ["problems", "When something looks wrong"],
 ] as const;
 
@@ -528,8 +529,33 @@ export default async function GuidePage() {
           </GuideSection>
 
           <GuideSection
+            id="account"
+            title="13 · Your own login"
+          >
+            <p className="text-sm text-stone-600">
+              Click your name at the bottom of the sidebar to open{" "}
+              <Link href="/account" className="text-brand-700 hover:underline">your account</Link>.
+              It shows who you are signed in as and lets you change your password.
+            </p>
+            <p className="text-sm text-stone-600">
+              You need your current password to set a new one, and a new one must be at least
+              12 characters. A short phrase you can remember beats a short password you cannot.
+            </p>
+            <Warn>
+              Changing your password <strong>signs out every other device</strong> signed in as
+              you — including one left open at home, or a phone you no longer carry. That is the
+              point: do it straight away if you think anyone else has seen your password.
+            </Warn>
+            <Note>
+              There is no &ldquo;forgot password&rdquo; email. If someone cannot get in, an owner
+              has to set a new password for them. Your name, email and role are set by an owner
+              too.
+            </Note>
+          </GuideSection>
+
+          <GuideSection
             id="problems"
-            title="13 · When something looks wrong"
+            title="14 · When something looks wrong"
           >
             <Table
               head={["What you see", "What it means", "What to do"]}
@@ -556,7 +582,7 @@ export default async function GuidePage() {
                 ],
                 [
                   "You are asked to sign in again",
-                  "The session expired.",
+                  "The session expired, your password was changed on another device, or an owner deactivated the account.",
                   "Sign in again. Nothing is lost — unsaved form entries are, so re-enter those.",
                 ],
                 [
