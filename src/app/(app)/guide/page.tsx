@@ -472,10 +472,15 @@ export default async function GuidePage() {
               </Step>
               <Step n={2} title="Add what you bought">
                 <p>
-                  Pick the ingredient and say how many <em>packs</em> — sacks, trays, bottles —
-                  not grams. If the supplier is already on that ingredient&rsquo;s list, the pack
-                  size and last price fill themselves in; change the price to what you actually
-                  paid today.
+                  Pick the item and say how many <em>packs</em> — sacks, trays, bottles — not
+                  grams. If the supplier is already on that item&rsquo;s list, the pack size and
+                  last price fill themselves in; change the price to what you actually paid today.
+                </p>
+                <p>
+                  Buying something for the first time? Choose <em>Something not on the list</em>
+                  and type its name. You only have to say whether it is measured in grams,
+                  millilitres or pieces — what it costs per unit is worked out from this very
+                  purchase, and the supplier is recorded as where you buy it.
                 </p>
               </Step>
               <Step n={3} title="Press Receive stock">
@@ -485,6 +490,12 @@ export default async function GuidePage() {
                 </p>
               </Step>
             </Steps>
+            <Warn>
+              An item created this way starts with no minimum or safety stock, so nothing will
+              ever prompt you to reorder it. Set those on{" "}
+              <Link href="/ingredients" className="text-brand-700 hover:underline">/ingredients</Link>{" "}
+              once you know roughly how fast it goes.
+            </Warn>
             <Note>
               Receiving does three things at once: the quantity lands in that branch&rsquo;s stock,
               the ingredient&rsquo;s average cost is updated to what you actually paid, and every

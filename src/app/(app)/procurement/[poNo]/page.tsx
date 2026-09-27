@@ -104,7 +104,12 @@ export default async function PurchaseOrderPage({
           {canOrder && (po.status === "APPROVED" || po.status === "SUGGESTED") ? (
             <div className="rounded-md border border-stone-200 p-3">
               <p className="mb-2 text-sm font-medium text-stone-700">Add a line by hand</p>
-              <EntityForm action={addPoLine.bind(null, poNo)} returnTo={`/procurement/${poNo}`} submitLabel="Add line">
+              <EntityForm
+                action={addPoLine.bind(null, poNo)}
+                returnTo={`/procurement/${poNo}`}
+                submitLabel="Add line"
+                resetOnSuccess
+              >
                 <PoLineFields
                   ingredients={ingredients.map((i) => ({ id: i.id, name: i.name, baseUnit: i.baseUnit }))}
                   supplied={supplied.map((sup) => ({

@@ -2,12 +2,13 @@
 
 import { z } from "zod";
 import { businessDateFor, toDateColumn } from "@/lib/businessDate";
-import { dec, sum } from "@/lib/money";
+import { dec, formatPHP, sum } from "@/lib/money";
 import { costPerBaseUnit, newAverageCost } from "@/lib/engines/replenishment";
 import { describeChanges, recomputeForIngredient } from "@/lib/costing-service";
 import { onHand, postLedger, type LedgerEntry } from "@/lib/inventory-service";
 import { generateSuggestions, storeSuggestions } from "@/lib/procurement-service";
 import { assertScope } from "@/lib/rbac";
+import type { ScopedDb } from "@/lib/db";
 import { resolveSupplier } from "@/lib/supplier-resolve";
 import { decimalString } from "@/lib/validation/masterdata";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
@@ -379,12 +380,77 @@ export async function cancelPurchaseOrder(poNo: string): Promise<ActionResult> {
 
 /** Add a line by hand — not everything comes from a suggestion. */
 const manualLineSchema = z.object({
-  ingredientId: z.string().min(1, "Choose an ingredient"),
+  ingredientId: z.string().optional().or(z.literal("").transform(() => undefined)),
+  /** A thing bought for the first time, typed rather than chosen. See ensureIngredient. */
+  ingredientName: z.string().trim().max(120).optional().or(z.literal("").transform(() => undefined)),
+  // Plain strings: an unfilled select posts "", and these only matter when a new
+  // ingredient is being named, so they are checked there rather than here.
+  newBaseUnit: z.string().trim().optional(),
+  newCategory: z.string().trim().optional(),
   qtyPurchaseUnit: decimalString("Quantity", { min: 0, allowZero: false }),
   purchaseUnitName: z.string().trim().min(1, "Name the unit, e.g. sack 25kg"),
   baseUnitsPerPurchaseUnit: decimalString("Base units per unit", { min: 0, allowZero: false }),
   unitPrice: decimalString("Price per unit"),
 });
+
+/** SQUID-RING from "Squid ring (frozen)", with a suffix if that code is taken. */
+async function uniqueSku(db: ScopedDb, name: string): Promise<string> {
+  const base = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 16) || "ITEM";
+  for (let n = 0; n < 50; n++) {
+    const sku = n === 0 ? base : `${base}-${n + 1}`.slice(0, 20);
+    if (!(await db.ingredient.findFirst({ where: { sku } }))) return sku;
+  }
+  return `ITEM-${Date.now().toString().slice(-8)}`;
+}
+
+/**
+ * The ingredient on a purchase line, creating it if this is the first time it has been
+ * bought. Everything the system needs is already on the line: the pack, how much is in
+ * it, and what it cost — so the cost per gram is derived from the purchase rather than
+ * guessed, which is the one number a new ingredient usually gets wrong.
+ *
+ * An exact name match is reused, so typing "Vinegar" twice never yields two of them.
+ */
+async function ensureIngredient(
+  db: ScopedDb,
+  companyId: string,
+  data: z.infer<typeof manualLineSchema>,
+): Promise<{ id: string; created: string | null } | { error: string }> {
+  if (data.ingredientId) return { id: data.ingredientId, created: null };
+
+  const name = data.ingredientName?.trim();
+  if (!name) return { error: "Choose what you bought, or type a new one." };
+
+  const existing = await db.ingredient.findFirst({ where: { name } });
+  if (existing) return { id: existing.id, created: null };
+
+  const BASE_UNITS = ["G", "ML", "PC"] as const;
+  const CATEGORIES = ["RAW", "PACKAGING", "CONDIMENT", "OIL", "CONSUMABLE"] as const;
+  const baseUnit = BASE_UNITS.find((u) => u === data.newBaseUnit);
+  if (!baseUnit) {
+    return { error: `Say whether ${name} is measured in grams, millilitres or pieces.` };
+  }
+  const category = CATEGORIES.find((c) => c === data.newCategory) ?? "RAW";
+
+  const perPack = dec(data.baseUnitsPerPurchaseUnit);
+  const created = await db.ingredient.create({
+    data: {
+      companyId,
+      sku: await uniqueSku(db, name),
+      name,
+      category,
+      baseUnit,
+      // price of one pack spread over what the pack holds
+      currentCostPerBaseUnit: dec(data.unitPrice).dividedBy(perPack).toFixed(4),
+      packSize: perPack.toFixed(4),
+    },
+  });
+  return { id: created.id, created: created.name };
+}
 
 export async function addPoLine(poNo: string, formData: FormData): Promise<ActionResult> {
   try {
@@ -398,11 +464,48 @@ export async function addPoLine(poNo: string, formData: FormData): Promise<Actio
       return { ok: false, error: "This order has already been placed. Raise a new one." };
     }
 
+    const resolved = await ensureIngredient(ctx.db, ctx.db.$companyId, parsed.data);
+    if ("error" in resolved) return { ok: false, error: resolved.error };
+
+    const line = {
+      ingredientId: resolved.id,
+      qtyPurchaseUnit: parsed.data.qtyPurchaseUnit,
+      purchaseUnitName: parsed.data.purchaseUnitName,
+      baseUnitsPerPurchaseUnit: parsed.data.baseUnitsPerPurchaseUnit,
+      unitPrice: parsed.data.unitPrice,
+    };
+
     await ctx.db.purchaseOrderLine.upsert({
-      where: { poNo_ingredientId: { poNo, ingredientId: parsed.data.ingredientId } },
-      update: parsed.data,
-      create: { ...parsed.data, poNo, companyId: ctx.db.$companyId },
+      where: { poNo_ingredientId: { poNo, ingredientId: resolved.id } },
+      update: line,
+      create: { ...line, poNo, companyId: ctx.db.$companyId },
     });
+
+    /**
+     * Buying something records where it came from and in what pack. Without this the
+     * same details would have to be retyped next time, and procurement could never
+     * suggest reordering it — a suggestion needs a preferred supplier to name.
+     */
+    const alreadyListed = await ctx.db.supplierIngredient.findFirst({
+      where: { supplierId: po.supplierId, ingredientId: resolved.id },
+    });
+    if (!alreadyListed) {
+      const hasPreferred = await ctx.db.supplierIngredient.findFirst({
+        where: { ingredientId: resolved.id, isPreferred: true },
+      });
+      await ctx.db.supplierIngredient.create({
+        data: {
+          companyId: ctx.db.$companyId,
+          supplierId: po.supplierId,
+          ingredientId: resolved.id,
+          purchaseUnitName: parsed.data.purchaseUnitName,
+          baseUnitsPerPurchaseUnit: parsed.data.baseUnitsPerPurchaseUnit,
+          lastPurchasePrice: parsed.data.unitPrice,
+          // only the default source if nothing else already is
+          isPreferred: !hasPreferred,
+        },
+      });
+    }
 
     const lines = await ctx.db.purchaseOrderLine.findMany({ where: { poNo } });
     await ctx.db.purchaseOrder.update({
@@ -412,8 +515,13 @@ export async function addPoLine(poNo: string, formData: FormData): Promise<Actio
       },
     });
 
-    refresh("/procurement", `/procurement/${poNo}`);
-    return { ok: true, message: "Line added." };
+    refresh("/procurement", `/procurement/${poNo}`, "/ingredients", "/suppliers");
+    return {
+      ok: true,
+      message: resolved.created
+        ? `${resolved.created} added, at ${formatPHP(dec(parsed.data.unitPrice).dividedBy(dec(parsed.data.baseUnitsPerPurchaseUnit)))} per unit. Set its minimum and safety stock on the Ingredients screen so it can be reordered automatically.`
+        : "Line added.",
+    };
   } catch (error) {
     return toActionError(error);
   }

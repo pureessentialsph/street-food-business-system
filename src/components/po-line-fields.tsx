@@ -19,6 +19,11 @@ export type SuppliedItem = {
  * size, which would silently book the wrong quantity into stock. They stay editable
  * because a supplier can change pack or price at any time, and the price on the day is
  * what the costing should use.
+ *
+ * Something bought for the first time can be typed instead of chosen. Two more fields
+ * appear, because an ingredient cannot be counted without knowing whether it is grams,
+ * millilitres or pieces — everything else, including what it costs per unit, follows
+ * from the purchase itself.
  */
 export function PoLineFields({
   ingredients, supplied,
@@ -31,38 +36,108 @@ export function PoLineFields({
   const [perUnit, setPerUnit] = useState("");
   const [price, setPrice] = useState("");
   const [chosen, setChosen] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const ingredient = ingredients.find((i) => i.id === chosen);
   const unitWord = ingredient
     ? ingredient.baseUnit === "G" ? "grams" : ingredient.baseUnit === "ML" ? "ml" : "pieces"
-    : "base units";
+    : "units";
 
   return (
     <>
-      <Field label="What you bought" name="ingredientId" required>
-        <Select
-          id="ingredientId"
-          name="ingredientId"
-          required
-          value={chosen}
-          onChange={(event) => {
-            const id = event.currentTarget.value;
-            setChosen(id);
-            const match = known.get(id);
-            setUnitName(match?.purchaseUnitName ?? "");
-            setPerUnit(match?.baseUnitsPerPurchaseUnit ?? "");
-            setPrice(match?.lastPurchasePrice ?? "");
-          }}
-        >
-          <option value="">— select —</option>
-          {ingredients.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.name}
-              {known.has(i.id) ? "" : " (not on this supplier's list)"}
-            </option>
-          ))}
-        </Select>
+      <Field
+        label="What you bought"
+        name="ingredientId"
+        required
+        hint={adding ? "A new item. Its cost per unit is worked out from this purchase." : undefined}
+      >
+        {adding ? (
+          <div className="space-y-1">
+            <TextInput
+              id="ingredientId"
+              name="ingredientName"
+              placeholder="e.g. Chilli garlic sauce"
+              autoFocus
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setAdding(false)}
+              className="text-xs font-medium text-brand-700 hover:underline"
+            >
+              ← Choose from the existing list instead
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <Select
+              id="ingredientId"
+              name="ingredientId"
+              required
+              value={chosen}
+              onChange={(event) => {
+                const id = event.currentTarget.value;
+                if (id === "__new__") {
+                  setAdding(true);
+                  setChosen("");
+                  setUnitName("");
+                  setPerUnit("");
+                  setPrice("");
+                  return;
+                }
+                setChosen(id);
+                const match = known.get(id);
+                setUnitName(match?.purchaseUnitName ?? "");
+                setPerUnit(match?.baseUnitsPerPurchaseUnit ?? "");
+                setPrice(match?.lastPurchasePrice ?? "");
+              }}
+            >
+              <option value="">— select —</option>
+              {ingredients.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
+                  {known.has(i.id) ? "" : " (not on this supplier's list)"}
+                </option>
+              ))}
+              <option value="__new__">+ Something not on the list…</option>
+            </Select>
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="text-xs font-medium text-brand-700 hover:underline"
+            >
+              + Something not on the list
+            </button>
+          </div>
+        )}
       </Field>
+
+      {adding ? (
+        <>
+          <Field
+            label="Measured in"
+            name="newBaseUnit"
+            required
+            hint="How you will count it in stock. Cannot be changed later, so pick the way you actually count."
+          >
+            <Select id="newBaseUnit" name="newBaseUnit" required defaultValue="">
+              <option value="">— select —</option>
+              <option value="G">Grams</option>
+              <option value="ML">Millilitres</option>
+              <option value="PC">Pieces</option>
+            </Select>
+          </Field>
+          <Field label="Kind" name="newCategory" hint="Only used for grouping.">
+            <Select id="newCategory" name="newCategory" defaultValue="RAW">
+              <option value="RAW">Raw ingredient</option>
+              <option value="CONDIMENT">Condiment / sauce</option>
+              <option value="OIL">Oil</option>
+              <option value="PACKAGING">Packaging</option>
+              <option value="CONSUMABLE">Consumable</option>
+            </Select>
+          </Field>
+        </>
+      ) : null}
 
       <Field label="How many" name="qtyPurchaseUnit" required hint="Packs, sacks or trays — not grams.">
         <NumberInput id="qtyPurchaseUnit" name="qtyPurchaseUnit" required placeholder="0" />
