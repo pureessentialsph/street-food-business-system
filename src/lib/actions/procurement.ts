@@ -7,6 +7,8 @@ import { costPerBaseUnit, newAverageCost } from "@/lib/engines/replenishment";
 import { describeChanges, recomputeForIngredient } from "@/lib/costing-service";
 import { onHand, postLedger, type LedgerEntry } from "@/lib/inventory-service";
 import { generateSuggestions, storeSuggestions } from "@/lib/procurement-service";
+import { assertScope } from "@/lib/rbac";
+import { resolveSupplier } from "@/lib/supplier-resolve";
 import { decimalString } from "@/lib/validation/masterdata";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
@@ -133,6 +135,68 @@ export async function createPurchaseOrder(formData: FormData): Promise<ActionRes
       ok: true,
       id: po.poNo,
       message: `${reference} raised: ${chosen.length} line${chosen.length === 1 ? "" : "s"}, ₱${total.toFixed(2)}.`,
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Raise a purchase order by hand.
+ *
+ * Suggestions only appear once an ingredient is running low AND has sold before, so
+ * before the first trading day there are none at all — which left no way to record a
+ * purchase, because every order had to start from a suggestion. This is the way in:
+ * name the supplier and where the goods land, then add what you bought.
+ *
+ * Created APPROVED rather than SUGGESTED, because a person deciding to buy something
+ * IS the approval. It can be received straight away, which is what recording a
+ * purchase already made needs.
+ */
+export async function createManualPurchaseOrder(formData: FormData): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("procurement.approve");
+
+    const destinationBranchId = String(formData.get("destinationBranchId") ?? "");
+    if (!destinationBranchId) return { ok: false, error: "Choose where the delivery goes." };
+    assertScope(ctx.user, destinationBranchId);
+
+    const supplier = await resolveSupplier(
+      ctx.db,
+      String(formData.get("supplierId") ?? "") || null,
+      String(formData.get("supplierName") ?? "") || null,
+    );
+    if (!supplier.id) return { ok: false, error: "Choose a supplier, or type a new one." };
+
+    const expectedRaw = String(formData.get("expectedAt") ?? "").trim();
+    const expectedAt = expectedRaw ? new Date(`${expectedRaw}T00:00:00.000Z`) : new Date();
+    if (Number.isNaN(expectedAt.getTime())) return { ok: false, error: "That is not a valid date." };
+
+    const count = await ctx.db.purchaseOrder.count();
+    const reference = `PO-${String(count + 1).padStart(5, "0")}`;
+
+    const po = await ctx.db.purchaseOrder.create({
+      data: {
+        companyId: ctx.db.$companyId,
+        reference,
+        supplierId: supplier.id,
+        destinationBranchId,
+        status: "APPROVED",
+        expectedAt,
+        approvedAt: new Date(),
+        approvedById: ctx.user.id,
+        createdById: ctx.user.id,
+      },
+    });
+
+    await audit(ctx, "CREATE", "PurchaseOrder", po.poNo, null, po);
+    refresh("/procurement");
+    return {
+      ok: true,
+      id: po.poNo,
+      message:
+        `${reference} started${supplier.created ? `, and ${supplier.created} was added to suppliers` : ""}. ` +
+        `Add what you bought, then press Receive to bring it into stock.`,
     };
   } catch (error) {
     return toActionError(error);

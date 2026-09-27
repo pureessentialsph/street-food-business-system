@@ -2,6 +2,7 @@
 
 import { assetAssignmentSchema, assetSchema } from "@/lib/validation/masterdata";
 import type { ScopedDb } from "@/lib/db";
+import { resolveSupplier } from "@/lib/supplier-resolve";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 /**
@@ -42,32 +43,6 @@ async function rememberCategory(ctx: { db: ScopedDb }, name: string): Promise<vo
   }
 }
 
-/**
- * A supplier typed rather than chosen. Only a name is known at this point — you are
- * recording a fryer, not onboarding a vendor — so a stub is created and the rest is
- * filled in on /suppliers later. Matching an existing name rather than creating a
- * duplicate is the point: "Caltex LPG Dealer" typed twice is one supplier.
- *
- * Unlike a category, failing here DOES fail the save: the asset would otherwise be
- * written with no supplier at all, silently losing what was typed.
- */
-async function resolveSupplier(
-  ctx: { db: ScopedDb },
-  supplierId: string | null,
-  typedName: string | undefined,
-): Promise<{ id: string | null; created: string | null }> {
-  const name = typedName?.trim();
-  if (!name) return { id: supplierId, created: null };
-
-  const existing = await ctx.db.supplier.findFirst({ where: { name } });
-  if (existing) return { id: existing.id, created: null };
-
-  const created = await ctx.db.supplier.create({
-    data: { companyId: ctx.db.$companyId, name, leadTimeDays: 1 },
-  });
-  return { id: created.id, created: created.name };
-}
-
 export async function saveAsset(id: string | null, formData: FormData): Promise<ActionResult> {
   try {
     const ctx = await withPermission("masterdata.write");
@@ -78,7 +53,7 @@ export async function saveAsset(id: string | null, formData: FormData): Promise<
     if (!where.ok) return { ok: false, error: where.error };
 
     const supplier = await resolveSupplier(
-      ctx,
+      ctx.db,
       nullable(parsed.data.supplierId),
       parsed.data.supplierName,
     );

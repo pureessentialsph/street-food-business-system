@@ -9,8 +9,9 @@ import { ReceiveForm } from "./receive-form";
 import { ActionButton } from "@/components/action-button";
 import { PageHeader } from "@/components/data-table";
 import { EntityForm } from "@/components/entity-form";
+import { PoLineFields } from "@/components/po-line-fields";
 import { Card, CardBody, CardHeader, CardTitle, EmptyState } from "@/components/ui/card";
-import { Badge, Field, NumberInput, Select, TextInput } from "@/components/ui/field";
+import { Badge } from "@/components/ui/field";
 
 export default async function PurchaseOrderPage({
   params,
@@ -24,10 +25,12 @@ export default async function PurchaseOrderPage({
   const po = await db.purchaseOrder.findUnique({ where: { poNo }, include: { lines: true } });
   if (!po) notFound();
 
-  const [supplier, branch, ingredients] = await Promise.all([
+  const [supplier, branch, ingredients, supplied] = await Promise.all([
     db.supplier.findUnique({ where: { id: po.supplierId } }),
     db.branch.findUnique({ where: { id: po.destinationBranchId } }),
     db.ingredient.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    /** This supplier's own pack sizes and prices, to fill the line form in. */
+    db.supplierIngredient.findMany({ where: { supplierId: po.supplierId } }),
   ]);
 
   const ingredientName = new Map(ingredients.map((i) => [i.id, i.name]));
@@ -102,24 +105,15 @@ export default async function PurchaseOrderPage({
             <div className="rounded-md border border-stone-200 p-3">
               <p className="mb-2 text-sm font-medium text-stone-700">Add a line by hand</p>
               <EntityForm action={addPoLine.bind(null, poNo)} returnTo={`/procurement/${poNo}`} submitLabel="Add line">
-                <Field label="Ingredient" name="ingredientId" required>
-                  <Select id="ingredientId" name="ingredientId" required defaultValue="">
-                    <option value="">— select —</option>
-                    {ingredients.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-                  </Select>
-                </Field>
-                <Field label="Quantity" name="qtyPurchaseUnit" required hint="In the supplier's own unit.">
-                  <NumberInput id="qtyPurchaseUnit" name="qtyPurchaseUnit" required placeholder="0" />
-                </Field>
-                <Field label="Unit name" name="purchaseUnitName" required hint="e.g. sack 25kg, tray 300pcs">
-                  <TextInput id="purchaseUnitName" name="purchaseUnitName" required />
-                </Field>
-                <Field label="Base units per unit" name="baseUnitsPerPurchaseUnit" required hint="25,000 g in a 25 kg sack.">
-                  <NumberInput id="baseUnitsPerPurchaseUnit" name="baseUnitsPerPurchaseUnit" required placeholder="1" />
-                </Field>
-                <Field label="Price per unit (₱)" name="unitPrice" required>
-                  <NumberInput id="unitPrice" name="unitPrice" required placeholder="0.00" />
-                </Field>
+                <PoLineFields
+                  ingredients={ingredients.map((i) => ({ id: i.id, name: i.name, baseUnit: i.baseUnit }))}
+                  supplied={supplied.map((sup) => ({
+                    ingredientId: sup.ingredientId,
+                    purchaseUnitName: sup.purchaseUnitName,
+                    baseUnitsPerPurchaseUnit: sup.baseUnitsPerPurchaseUnit.toString(),
+                    lastPurchasePrice: sup.lastPurchasePrice.toString(),
+                  }))}
+                />
               </EntityForm>
             </div>
           ) : null}
@@ -135,7 +129,16 @@ export default async function PurchaseOrderPage({
         </CardBody>
       </Card>
 
-      {canReceive && (po.status === "ORDERED" || po.status === "PARTIALLY_RECEIVED") && po.lines.length > 0 ? (
+      {/*
+        APPROVED is included on purpose. Much of what this business buys is already in
+        the van when it gets recorded — "mark as placed, then receive" is a step for an
+        order still to come, not for a sack of flour standing in the commissary. The
+        receive action already allowed any status but RECEIVED and CANCELLED; only the
+        screen insisted on the longer road.
+      */}
+      {canReceive
+        && (po.status === "APPROVED" || po.status === "ORDERED" || po.status === "PARTIALLY_RECEIVED")
+        && po.lines.length > 0 ? (
         <ReceiveForm
           poNo={poNo}
           reference={po.reference}

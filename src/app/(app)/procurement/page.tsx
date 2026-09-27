@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can, seesAllBranches } from "@/lib/rbac";
-import { regenerateSuggestions } from "@/lib/actions/procurement";
+import { createManualPurchaseOrder, regenerateSuggestions } from "@/lib/actions/procurement";
 import { generateSuggestions, supplierPerformance } from "@/lib/procurement-service";
 import { dec, formatPHP } from "@/lib/money";
 import { OrderBuilder } from "./order-builder";
@@ -10,18 +10,25 @@ import { DismissButton } from "./dismiss-button";
 import { ActionButton } from "@/components/action-button";
 import { DataTable, PageHeader } from "@/components/data-table";
 import { Card, CardBody, CardHeader, CardTitle, EmptyState } from "@/components/ui/card";
-import { Badge } from "@/components/ui/field";
+import { Badge, Field, Select, TextInput } from "@/components/ui/field";
+import { EntityForm } from "@/components/entity-form";
+import { ComboSelect } from "@/components/combo-select";
+import { Button } from "@/components/ui/button";
 
 /**
  * The morning order list (spec §9): what is running out, how urgently, and what to buy.
  * Every suggestion says why in plain language, and every quantity is editable.
  */
-export default async function ProcurementPage() {
+export default async function ProcurementPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ buy?: string }>;
+}) {
   const user = await requireUser();
   const db = scopedDb(user.companyId);
   const canOrder = can(user, "procurement.approve");
 
-  const [suggestions, stored, orders, branches, performance] = await Promise.all([
+  const [suggestions, stored, orders, branches, performance, suppliers] = await Promise.all([
     generateSuggestions(db, seesAllBranches(user) ? {} : { branchIds: user.scopeBranchIds }),
     db.replenishmentSuggestion.findMany({ where: { status: { in: ["NEW", "DISMISSED"] } } }),
     db.purchaseOrder.findMany({
@@ -32,7 +39,12 @@ export default async function ProcurementPage() {
     }),
     db.branch.findMany({ select: { id: true, code: true, name: true } }),
     supplierPerformance(db),
+    db.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
   ]);
+
+  const params = await searchParams;
+  const buying = params.buy === "1";
+  const today = new Date().toISOString().slice(0, 10);
 
   const dismissed = new Set(
     stored.filter((s) => s.status === "DISMISSED").map((s) => `${s.itemId}|${s.locationId}`),
@@ -64,8 +76,51 @@ export default async function ProcurementPage() {
       <PageHeader
         title="Procurement"
         subtitle="What to buy, how much, and why — worked out from what the carts actually sold."
-        action={canOrder ? <ActionButton action={regenerateSuggestions} label="Recalculate" pendingLabel="Working…" /> : null}
+        action={
+          canOrder ? (
+            <div className="flex flex-wrap gap-2">
+              <Link href="/procurement?buy=1"><Button>Record a purchase</Button></Link>
+              <ActionButton action={regenerateSuggestions} label="Recalculate" pendingLabel="Working…" />
+            </div>
+          ) : null
+        }
       />
+
+      {canOrder && buying ? (
+        <Card>
+          <CardHeader><CardTitle>Record a purchase</CardTitle></CardHeader>
+          <CardBody className="space-y-3">
+            <p className="text-sm text-stone-600">
+              For anything you have bought or are about to buy, whether or not it appears in the
+              list below. This opens an order; you then add what you bought and press Receive,
+              which is what puts it into stock and updates the ingredient&rsquo;s cost.
+            </p>
+            <EntityForm action={createManualPurchaseOrder} returnTo="/procurement" submitLabel="Start the order">
+              <Field label="Bought from" name="supplierId" required hint="Type a new name and the supplier is created.">
+                <ComboSelect
+                  name="supplierId"
+                  newName="supplierName"
+                  options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                  emptyLabel="— select —"
+                  placeholder="e.g. Divisoria Poultry Supply"
+                  addLabel="+ Add a new supplier"
+                />
+              </Field>
+              <Field label="Delivered to" name="destinationBranchId" required hint="Which branch or commissary holds the stock.">
+                <Select id="destinationBranchId" name="destinationBranchId" required defaultValue="">
+                  <option value="">— select —</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.code} · {b.name}</option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Date" name="expectedAt" hint="When it arrived, or is due. Today if left blank.">
+                <TextInput id="expectedAt" name="expectedAt" type="date" defaultValue={today} />
+              </Field>
+            </EntityForm>
+          </CardBody>
+        </Card>
+      ) : null}
 
       {urgent.length > 0 ? (
         <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-900">

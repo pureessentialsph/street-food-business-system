@@ -220,10 +220,11 @@ export default async function GuidePage() {
             lead="Defining an ingredient does not give you any of it. Quantities come in separately."
           >
             <p className="text-sm text-stone-600">
-              For stock you <strong>already have</strong> on the day you start using the system,
-              use an adjustment. For anything arriving from a supplier from now on, raise a
-              purchase order instead — it records the real cost and updates the ingredient&rsquo;s
-              average.
+              For stock you <strong>already have</strong> on the day you start using the system and
+              cannot put a supplier or a receipt to, use an adjustment. For anything you actually
+              bought — then or now — <strong>record it as a purchase</strong> instead (section 9):
+              it keeps the supplier, the pack size and the real price, and it updates costing.
+              An adjustment records only a quantity.
             </p>
             <Steps>
               <Step n={1} title="Count what you physically have" />
@@ -458,11 +459,44 @@ export default async function GuidePage() {
               un-ticks the old.
             </Warn>
             <p className="text-sm text-stone-600">
-              <Link href="/procurement" className="text-brand-700 hover:underline">/procurement</Link>{" "}
-              suggests what to order from recent consumption, current stock, safety levels and each
-              supplier&rsquo;s lead time. Turn suggestions into a purchase order, mark it ordered,
-              then receive it when it arrives — receiving is what brings the stock in and updates
-              costs.
+              <strong>Everything you buy is recorded here</strong> — quail eggs, vinegar, squid
+              rings, sticks, cups, LPG. Recording a purchase is what puts it into stock; there is
+              nowhere else to type it in.
+            </p>
+            <Steps>
+              <Step n={1} title="Press Record a purchase" where="/procurement">
+                <p>
+                  Choose who you bought from and which branch or commissary is holding the goods.
+                  Type a new supplier name if they are not on the list yet.
+                </p>
+              </Step>
+              <Step n={2} title="Add what you bought">
+                <p>
+                  Pick the ingredient and say how many <em>packs</em> — sacks, trays, bottles —
+                  not grams. If the supplier is already on that ingredient&rsquo;s list, the pack
+                  size and last price fill themselves in; change the price to what you actually
+                  paid today.
+                </p>
+              </Step>
+              <Step n={3} title="Press Receive stock">
+                <p>
+                  <strong>This is the step that matters.</strong> Nothing enters stock until you
+                  receive it. An order sitting unreceived is a plan, not a delivery.
+                </p>
+              </Step>
+            </Steps>
+            <Note>
+              Receiving does three things at once: the quantity lands in that branch&rsquo;s stock,
+              the ingredient&rsquo;s average cost is updated to what you actually paid, and every
+              product using it gets a new cost version. Buy quail eggs dearer today and
+              kwek-kwek&rsquo;s cost per stick rises by itself — but only from today. Yesterday&rsquo;s
+              shifts keep yesterday&rsquo;s cost.
+            </Note>
+            <p className="text-sm text-stone-600">
+              The list on the same screen <em>suggests</em> what is running low, from recent
+              consumption, stock on hand, safety levels and each supplier&rsquo;s lead time. It is a
+              prompt, not a gate — suggestions only appear once something has been selling, so
+              before your first trading week you simply record purchases as you make them.
             </p>
             <Note>
               Receiving a purchase order updates the ingredient&rsquo;s weighted-average cost, which
