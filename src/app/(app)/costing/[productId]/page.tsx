@@ -26,11 +26,13 @@ const BASIS_HELP = {
 const UNIT_LABEL = { G: "g", ML: "ml", PC: "pc" } as const;
 
 export default async function ProductCostingPage({
-  params,
+  params, searchParams,
 }: {
   params: Promise<{ productId: string }>;
+  searchParams: Promise<{ line?: string }>;
 }) {
   const { productId } = await params;
+  const { line: editingLineId } = await searchParams;
   const user = await requireUser();
   const db = scopedDb(user.companyId);
   const writable = can(user, "costing.write");
@@ -60,6 +62,11 @@ export default async function ProductCostingPage({
   ]);
 
   const currentVersion = versions[0];
+  /** The line being edited, if the row's Edit link named one that is really on this recipe. */
+  const editingLine = editingLineId
+    ? recipe?.lines.find((l) => l.id === editingLineId) ?? null
+    : null;
+
   const breakdown = currentVersion ? (currentVersion.breakdown as unknown as CostBreakdown) : null;
   const price = priceItem?.pricePerStick ?? null;
   const grossProfit = price && currentVersion ? dec(price).minus(currentVersion.costPerStick) : null;
@@ -179,11 +186,19 @@ export default async function ProductCostingPage({
                         </td>
                         <td className="px-3 py-2 text-right">
                           {writable ? (
-                            <RemoveButton
-                              label="Remove"
-                              confirmText={`Remove ${line.ingredient.name} from the ${product.name} recipe? The cost will be recalculated.`}
-                              action={removeRecipeLine.bind(null, line.id)}
-                            />
+                            <div className="flex items-center justify-end gap-2">
+                              <Link
+                                href={`/costing/${productId}?line=${line.id}`}
+                                className="text-xs font-medium text-brand-700 hover:underline"
+                              >
+                                Edit
+                              </Link>
+                              <RemoveButton
+                                label="Remove"
+                                confirmText={`Remove ${line.ingredient.name} from the ${product.name} recipe? The cost will be recalculated.`}
+                                action={removeRecipeLine.bind(null, line.id)}
+                              />
+                            </div>
                           ) : null}
                         </td>
                       </tr>
@@ -196,14 +211,36 @@ export default async function ProductCostingPage({
 
           {recipe && writable ? (
             <div className="rounded-md border border-stone-200 p-3">
-              <p className="mb-2 text-sm font-medium text-stone-700">Add or update an ingredient</p>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-stone-700">
+                  {editingLine
+                    ? `Edit ${editingLine.ingredient.name}`
+                    : "Add or update an ingredient"}
+                </p>
+                {editingLine ? (
+                  <Link href={`/costing/${productId}`} className="text-xs font-medium text-brand-700 hover:underline">
+                    ← Add a different one instead
+                  </Link>
+                ) : null}
+              </div>
               <EntityForm
-                action={saveRecipeLine.bind(null, recipe.id, null)}
+                /**
+                 * Editing binds the line's id, so changing the allocation basis moves
+                 * that line. Adding passes null, where the same ingredient on the same
+                 * basis updates in place rather than appearing twice.
+                 */
+                key={editingLine?.id ?? "new"}
+                action={saveRecipeLine.bind(null, recipe.id, editingLine?.id ?? null)}
                 returnTo={`/costing/${productId}`}
-                submitLabel="Save line"
+                submitLabel={editingLine ? "Save changes" : "Save line"}
               >
                 <Field label="Ingredient" name="ingredientId" required>
-                  <Select id="ingredientId" name="ingredientId" required defaultValue="">
+                  <Select
+                    id="ingredientId"
+                    name="ingredientId"
+                    required
+                    defaultValue={editingLine?.ingredientId ?? ""}
+                  >
                     <option value="">— select —</option>
                     {ingredients.map((ingredient) => (
                       <option key={ingredient.id} value={ingredient.id}>
@@ -218,20 +255,26 @@ export default async function ProductCostingPage({
                   required
                   hint="Per batch: flour and eggs. Per piece: frying oil. Per stick: the stick, cup and sauce."
                 >
-                  <Select id="allocationBasis" name="allocationBasis" defaultValue="PER_BATCH">
+                  <Select id="allocationBasis" name="allocationBasis" defaultValue={editingLine?.allocationBasis ?? "PER_BATCH"}>
                     {(["PER_BATCH", "PER_PIECE", "PER_STICK"] as const).map((basis) => (
                       <option key={basis} value={basis}>{BASIS_LABEL[basis]} — {BASIS_HELP[basis]}</option>
                     ))}
                   </Select>
                 </Field>
                 <Field label="Quantity in base units" name="qtyInBaseUnit" required hint="Grams, millilitres or pieces, matching the ingredient.">
-                  <NumberInput id="qtyInBaseUnit" name="qtyInBaseUnit" required placeholder="0" />
+                  <NumberInput id="qtyInBaseUnit" name="qtyInBaseUnit" required placeholder="0" defaultValue={editingLine?.qtyInBaseUnit.toString() ?? ""} />
                 </Field>
                 <Field label="Wastage %" name="wastagePct" required hint="Trim, spillage and breakage on this line. 0 if none.">
-                  <NumberInput id="wastagePct" name="wastagePct" defaultValue="0" required />
+                  <NumberInput
+                    id="wastagePct"
+                    name="wastagePct"
+                    required
+                    // stored as a fraction, shown as the percent the form asks for
+                    defaultValue={editingLine ? dec(editingLine.wastagePct).times(100).toFixed(2) : "0"}
+                  />
                 </Field>
                 <Field label="Component type" name="componentType" required hint="Groups the cost card so you can see what packaging really costs you.">
-                  <Select id="componentType" name="componentType" defaultValue="RAW">
+                  <Select id="componentType" name="componentType" defaultValue={editingLine?.componentType ?? "RAW"}>
                     <option value="RAW">Raw material</option>
                     <option value="OIL">Cooking oil</option>
                     <option value="PACKAGING">Packaging</option>

@@ -162,9 +162,16 @@ export default async function GuidePage() {
               </Step>
               <Step n={7} title="Write a recipe for each product" where="/costing">
                 <p>
-                  What one stick consumes — including the stick itself, the sauce and the cup.
-                  Without a recipe a product has no cost, and everything it sells shows as pure
-                  profit.
+                  Open a product from the Costing list. A recipe is what one stick consumes —
+                  including the stick itself, the sauce and the cup. Without one a product has no
+                  cost, and everything it sells shows as pure profit.
+                </p>
+                <p>
+                  Each line says <strong>how it is charged</strong>: per batch for flour and eggs,
+                  per piece for frying oil, per stick for the stick, cup and sauce. Press{" "}
+                  <em>Edit</em> on a line to change a quantity or its wastage; the cost per stick
+                  is recalculated as you save, and the old figure is kept so past shifts keep the
+                  cost that applied on their day.
                 </p>
                 <Warn>
                   A product with no recipe makes your margins look far better than they are. The
