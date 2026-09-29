@@ -176,13 +176,18 @@ export default async function CartScorecardPage({
                     <span>
                       <span className="font-mono text-xs text-stone-500">{asset.tag}</span>{" "}
                       <span className="font-medium text-stone-900">{asset.name}</span>
+                      {asset.quantity > 1 ? (
+                        <span className="ml-1 text-stone-500">&times; {asset.quantity}</span>
+                      ) : null}
                       {asset.condition === "GOOD" ? null : (
                         <span className="ml-2 text-xs font-medium text-amber-700">
                           {asset.condition === "UNSERVICEABLE" ? "unserviceable" : "needs repair"}
                         </span>
                       )}
                     </span>
-                    <span className="font-mono text-stone-600">{formatPHP(asset.acquisitionCost)}</span>
+                    <span className="font-mono text-stone-600">
+                      {formatPHP(dec(asset.acquisitionCost).times(asset.quantity))}
+                    </span>
                   </li>
                 ))}
               </ul>

@@ -384,6 +384,23 @@ export default async function GuidePage() {
               reason, so you can always answer &ldquo;who had the fryer when it broke?&rdquo; A
               cart&rsquo;s scorecard lists what it is carrying.
             </p>
+            <div>
+              <p className="text-sm font-medium text-stone-900">More than one of the same thing</p>
+              <div className="mt-1 space-y-2 text-sm text-stone-600">
+                <p>
+                  A record can stand for a bundle. Tag a fryer or a motor cart on its own; ten
+                  tongs bought together are <strong>one record of ten</strong> under a single tag,
+                  because nobody stickers tongs one by one. Enter the price of <strong>one</strong>
+                  — the list shows both that and what the bundle is worth.
+                </p>
+                <p>
+                  Sending part of a bundle somewhere splits it. Move 3 of the 10 tongs to a cart
+                  and you are left with <strong>AST-0051 ×7</strong> at the branch and{" "}
+                  <strong>AST-0051-2 ×3</strong> on the cart — the new tag extends the old one so
+                  the two stay obviously related. Moving all of them just moves the record.
+                </p>
+              </div>
+            </div>
             <Note>
               LPG splits in two, and this is intentional: the <strong>gas</strong> is an ingredient
               and is consumed, so it belongs in inventory. The <strong>tank</strong> is an asset

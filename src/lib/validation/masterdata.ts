@@ -190,6 +190,8 @@ export const assetSchema = z.object({
     .refine((v) => v !== "__new__", "Type the new category name"),
   serialNo: optionalText,
   acquiredOn: isoDate,
+  /// Whole things. Half a fryer is not an asset.
+  quantity: z.coerce.number().int().min(1, "At least one").max(9999, "That is a lot — split it up"),
   acquisitionCost: decimalString("Acquisition cost"),
   supplierId: optionalId,
   /// A supplier typed rather than chosen. Creates a stub for someone to complete later.
@@ -205,6 +207,8 @@ export const assetSchema = z.object({
 
 /** Moving one asset somewhere else. The reason is what makes the history worth having. */
 export const assetAssignmentSchema = z.object({
+  /// How many of the row to move. Fewer than all splits it.
+  moveQuantity: z.coerce.number().int().min(1, "Move at least one"),
   locationType: z.enum(["WAREHOUSE", "BRANCH", "CART", "EMPLOYEE"]).optional()
     .or(z.literal("").transform(() => undefined)),
   locationId: optionalId,

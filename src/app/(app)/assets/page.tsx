@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can, seesAllBranches } from "@/lib/rbac";
 import { assignAsset, deleteAsset, saveAsset } from "@/lib/actions/assets";
-import { formatPHP, sum } from "@/lib/money";
+import { dec, formatPHP, sum } from "@/lib/money";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
 import { DeleteButton, EntityForm } from "@/components/entity-form";
 import { Button } from "@/components/ui/button";
@@ -95,7 +95,8 @@ export default async function AssetsPage({
     : [];
 
   const live = assets.filter((a) => a.status !== "RETIRED" && a.status !== "LOST");
-  const bookValue = sum(live.map((a) => a.acquisitionCost));
+  const bookValue = sum(live.map((a) => dec(a.acquisitionCost).times(a.quantity)));
+  const unitsInService = live.reduce((total, a) => total + a.quantity, 0);
 
   const statusTone = (s: string) =>
     s === "IN_USE" ? "success" : s === "LOST" || s === "RETIRED" ? "danger" : "warning";
@@ -144,7 +145,12 @@ export default async function AssetsPage({
           <CardHeader><CardTitle>{editing ? `Edit ${editing.tag}` : "New asset"}</CardTitle></CardHeader>
           <CardBody>
             <EntityForm action={saveAsset.bind(null, editing?.id ?? null)} returnTo="/assets">
-              <Field label="Tag" name="tag" required hint="Stickered on the thing itself, e.g. AST-0012">
+              <Field
+                label="Tag"
+                name="tag"
+                required
+                hint="One tag per record. For a single thing, sticker it — AST-0012. For a bundle the tag names the bundle, so ten tongs are AST-0051 ×10, not ten tags; if you later send some to a cart they become AST-0051-2."
+              >
                 <TextInput id="tag" name="tag" defaultValue={editing?.tag ?? ""} required autoCapitalize="characters" />
               </Field>
               <Field label="What is it" name="name" required>
@@ -172,7 +178,21 @@ export default async function AssetsPage({
               <Field label="Acquired on" name="acquiredOn" required>
                 <TextInput id="acquiredOn" name="acquiredOn" type="date" defaultValue={editing ? editing.acquiredOn.toISOString().slice(0, 10) : today} required />
               </Field>
-              <Field label="What it cost (₱)" name="acquisitionCost" required hint="What you paid for it, not what it is worth now.">
+              <Field
+                label="How many"
+                name="quantity"
+                required
+                hint="One row can stand for a bundle. Tag a fryer or a cart on its own; ten tongs bought together are one row of ten."
+              >
+                <NumberInput
+                  id="quantity"
+                  name="quantity"
+                  inputMode="numeric"
+                  defaultValue={editing?.quantity?.toString() ?? "1"}
+                  required
+                />
+              </Field>
+              <Field label="What ONE cost (₱)" name="acquisitionCost" required hint="Price of a single one, not the bundle. What you paid, not what it is worth now.">
                 <NumberInput id="acquisitionCost" name="acquisitionCost" defaultValue={editing?.acquisitionCost.toString() ?? ""} required />
               </Field>
               <Field
@@ -218,9 +238,28 @@ export default async function AssetsPage({
           <CardHeader><CardTitle>Move {moving.tag} — {moving.name}</CardTitle></CardHeader>
           <CardBody className="space-y-4">
             <p className="text-sm text-stone-600">
-              Currently at <span className="font-medium text-stone-900">{whereIs(moving)}</span>.
+              {moving.quantity > 1 ? `All ${moving.quantity} are ` : "Currently "}
+              at <span className="font-medium text-stone-900">{whereIs(moving)}</span>.
             </p>
             <EntityForm action={assignAsset.bind(null, moving.id)} returnTo="/assets" submitLabel="Record the move">
+              <Field
+                label="How many"
+                name="moveQuantity"
+                required
+                hint={
+                  moving.quantity > 1
+                    ? `${moving.quantity} here. Move fewer and the rest stay where they are, as a separate record.`
+                    : "Just the one."
+                }
+              >
+                <NumberInput
+                  id="moveQuantity"
+                  name="moveQuantity"
+                  inputMode="numeric"
+                  defaultValue={moving.quantity.toString()}
+                  required
+                />
+              </Field>
               {locationFields({ locationType: moving.locationType, locationId: moving.locationId }, "move-")}
               <Field label="Moved on" name="movedOn" required>
                 <TextInput id="movedOn" name="movedOn" type="date" defaultValue={today} required />
@@ -257,7 +296,10 @@ export default async function AssetsPage({
       <div className="grid gap-3 text-sm sm:grid-cols-3">
         <Card><CardBody>
           <p className="text-stone-500">Assets in service</p>
-          <p className="font-mono text-base font-medium">{live.length}</p>
+          <p className="font-mono text-base font-medium">{unitsInService}</p>
+          <p className="text-xs text-stone-500">
+            across {live.length} record{live.length === 1 ? "" : "s"}
+          </p>
         </CardBody></Card>
         <Card><CardBody>
           <p className="text-stone-500">What they cost</p>
@@ -295,7 +337,26 @@ export default async function AssetsPage({
           { header: "What it is", cell: (a) => a.name },
           { header: "Category", cell: (a) => a.category },
           { header: "Where", cell: (a) => whereIs(a) },
-          { header: "Cost", numeric: true, cell: (a) => formatPHP(a.acquisitionCost) },
+          {
+            header: "How many",
+            numeric: true,
+            cell: (a) => (a.quantity > 1 ? `${a.quantity}` : "1"),
+          },
+          {
+            header: "Cost",
+            numeric: true,
+            cell: (a) =>
+              a.quantity > 1 ? (
+                <span>
+                  {formatPHP(dec(a.acquisitionCost).times(a.quantity))}
+                  <span className="block text-xs text-stone-500">
+                    {formatPHP(a.acquisitionCost)} each
+                  </span>
+                </span>
+              ) : (
+                formatPHP(a.acquisitionCost)
+              ),
+          },
           {
             header: "Condition",
             cell: (a) =>

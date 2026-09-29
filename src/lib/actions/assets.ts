@@ -3,6 +3,7 @@
 import { assetAssignmentSchema, assetSchema } from "@/lib/validation/masterdata";
 import type { ScopedDb } from "@/lib/db";
 import { resolveSupplier } from "@/lib/supplier-resolve";
+import { planSplit, splitTag } from "@/lib/engines/asset-split";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 /**
@@ -148,6 +149,77 @@ export async function assignAsset(assetId: string, formData: FormData): Promise<
       return { ok: false, error: "That is where it already is." };
     }
 
+    const plan = planSplit(before.quantity, parsed.data.moveQuantity);
+    if (plan.kind === "refused") return { ok: false, error: plan.reason };
+
+    const movedOn = new Date(parsed.data.movedOn);
+    const reason = nullable(parsed.data.reason);
+
+    /**
+     * Part of a bundle going elsewhere becomes its own row: a row means "these N,
+     * here", so five tongs leaving a branch for a cart is two rows afterwards, not one
+     * row in two places. Both halves are written together — a split that half-applied
+     * would create or destroy equipment.
+     */
+    if (plan.kind === "split") {
+      const siblings = await ctx.db.asset.findMany({
+        where: { tag: { startsWith: `${before.tag}-` } },
+        select: { tag: true },
+      });
+      const tag = splitTag(before.tag, new Set(siblings.map((s) => s.tag)));
+
+      const moved = await ctx.db.$transaction(async (tx) => {
+        await tx.asset.update({
+          where: { id: assetId },
+          data: { quantity: plan.remaining },
+        });
+        const created = await tx.asset.create({
+          data: {
+            companyId: ctx.db.$companyId,
+            tag,
+            name: before.name,
+            category: before.category,
+            serialNo: before.serialNo,
+            acquiredOn: before.acquiredOn,
+            quantity: plan.moving,
+            acquisitionCost: before.acquisitionCost,
+            supplierId: before.supplierId,
+            condition: before.condition,
+            status: before.status,
+            locationType: where.type as never,
+            locationId: where.id,
+            notes: before.notes,
+            createdById: ctx.user.id,
+          },
+        });
+        await tx.assetAssignment.create({
+          data: {
+            companyId: ctx.db.$companyId,
+            assetId: created.id,
+            fromLocationType: before.locationType,
+            fromLocationId: before.locationId,
+            toLocationType: created.locationType,
+            toLocationId: created.locationId,
+            movedOn,
+            reason: reason
+              ? `${reason} (${plan.moving} of ${before.quantity} from ${before.tag})`
+              : `${plan.moving} of ${before.quantity} split from ${before.tag}`,
+            createdById: ctx.user.id,
+          },
+        });
+        return created;
+      });
+
+      await audit(ctx, "UPDATE", "Asset", assetId, before, { split: plan, into: moved.tag });
+      refresh("/assets", "/carts");
+      return {
+        ok: true,
+        id: moved.id,
+        message:
+          `${plan.moving} moved as ${moved.tag}. ${plan.remaining} still with ${before.tag}.`,
+      };
+    }
+
     const after = await ctx.db.asset.update({
       where: { id: assetId },
       data: { locationType: where.type as never, locationId: where.id },
@@ -160,15 +232,19 @@ export async function assignAsset(assetId: string, formData: FormData): Promise<
         fromLocationId: before.locationId,
         toLocationType: after.locationType,
         toLocationId: after.locationId,
-        movedOn: new Date(parsed.data.movedOn),
-        reason: nullable(parsed.data.reason),
+        movedOn,
+        reason,
         createdById: ctx.user.id,
       },
     });
 
     await audit(ctx, "UPDATE", "Asset", assetId, before, after);
     refresh("/assets", "/carts");
-    return { ok: true, id: assetId, message: `${after.tag} moved.` };
+    return {
+      ok: true,
+      id: assetId,
+      message: after.quantity > 1 ? `All ${after.quantity} of ${after.tag} moved.` : `${after.tag} moved.`,
+    };
   } catch (error) {
     return toActionError(error);
   }

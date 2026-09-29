@@ -822,6 +822,13 @@ model Asset {
   category        String
   serialNo        String?
   acquiredOn      DateTime           @db.Date
+  /// How many identical things this row stands for. One for a fryer or a motor cart —
+  /// those are tracked individually because they are worth it and they are told apart.
+  /// Ten for a bundle of tongs, which nobody tags one by one. Moving part of a bundle
+  /// splits it into a second row, so a row always means "these N, here".
+  quantity        Int                @default(1)
+  /// Cost of ONE. Multiply by quantity for what the row is worth; keeping it per unit
+  /// means splitting a bundle needs no arithmetic and cannot drift.
   acquisitionCost Decimal            @db.Decimal(14, 4)
   supplierId      String?
   condition       AssetCondition     @default(GOOD)
