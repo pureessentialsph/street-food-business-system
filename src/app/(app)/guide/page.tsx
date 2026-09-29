@@ -341,7 +341,7 @@ export default async function GuidePage() {
                 [
                   "Production batch",
                   <Link key="pr" href="/inventory/production" className="text-brand-700 hover:underline">/inventory/production</Link>,
-                  "The commissary turning ingredients into finished product. Consumes the recipe, yields countable pieces.",
+                  "The commissary turning ingredients into finished product. Consumes the recipe, yields countable pieces — the form shows the stick equivalent as you type.",
                 ],
                 [
                   "Transfer",
@@ -355,6 +355,19 @@ export default async function GuidePage() {
                 ],
               ]}
             />
+            <Note>
+              A batch is entered in <strong>pieces</strong>, never sticks — a stick only exists
+              once a vendor skewers it at the cart. The form shows the stick equivalent beside
+              what you type, so 2,000 pieces of kwek-kwek reads as 500 sticks and a slipped
+              decimal is obvious.
+            </Note>
+            <Note>
+              A batch deliberately leaves out the recipe&rsquo;s <em>per stick</em> lines — the
+              stick, the cup, the sauce. Those are not consumed by frying, so they are charged at
+              the sale instead. It is why a batch&rsquo;s cost per piece is lower than the
+              recipe&rsquo;s cost per stick divided by pieces per stick: the two are measuring
+              different moments, not disagreeing.
+            </Note>
             <Note>
               Stock is valued at <strong>weighted average cost</strong>. That is why an adjustment
               takes a cost on the way in but ignores one on the way out — what leaves is worth the

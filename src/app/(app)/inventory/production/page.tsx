@@ -6,9 +6,10 @@ import { runProductionBatch } from "@/lib/actions/inventory";
 import { dec, formatPHP } from "@/lib/money";
 import { DataTable, PageHeader } from "@/components/data-table";
 import { EntityForm } from "@/components/entity-form";
+import { ProductionQuantities } from "@/components/production-quantities";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, NumberInput, Select, TextArea } from "@/components/ui/field";
+import { Field, Select, TextArea } from "@/components/ui/field";
 
 /** The commissary turning ingredients into countable pieces. */
 export default async function ProductionPage({
@@ -69,18 +70,13 @@ export default async function ProductionPage({
                     ))}
                   </Select>
                 </Field>
-                <Field label="Product" name="productId" required>
-                  <Select id="productId" name="productId" required defaultValue="">
-                    <option value="">— select —</option>
-                    {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </Select>
-                </Field>
-                <Field label="Pieces produced" name="actualQty" required hint="Good pieces that went into stock.">
-                  <NumberInput id="actualQty" name="actualQty" required placeholder="0" />
-                </Field>
-                <Field label="Pieces wasted" name="wasteQty" required hint="Burnt, dropped or spoiled during production. Costed, then written off.">
-                  <NumberInput id="wasteQty" name="wasteQty" defaultValue="0" required />
-                </Field>
+                <ProductionQuantities
+                  products={products.map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    piecesPerStick: p.piecesPerStick.toString(),
+                  }))}
+                />
                 <Field label="Notes" name="notes">
                   <TextArea id="notes" name="notes" />
                 </Field>
