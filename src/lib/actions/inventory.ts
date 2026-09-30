@@ -63,7 +63,6 @@ export async function runProductionBatch(formData: FormData): Promise<ActionResu
           ingredientId: line.ingredientId,
           ingredientName: line.ingredient.name,
           qtyInBaseUnit: line.qtyInBaseUnit.toString(),
-          wastagePct: line.wastagePct.toString(),
           allocationBasis: line.allocationBasis,
           componentType: line.componentType,
           costPerBaseUnit: line.ingredient.currentCostPerBaseUnit.toString(),
@@ -97,7 +96,8 @@ export async function runProductionBatch(formData: FormData): Promise<ActionResu
     // Ingredients leave the commissary.
     for (const line of recipe.lines) {
       if (line.allocationBasis === "PER_STICK") continue; // charged at the point of sale
-      const qtyPerBatch = dec(line.qtyInBaseUnit).times(dec(1).plus(line.wastagePct));
+      // Exactly what the recipe says. Waste is recorded when it happens, not assumed.
+      const qtyPerBatch = dec(line.qtyInBaseUnit);
       const consumed =
         line.allocationBasis === "PER_BATCH"
           ? qtyPerBatch.times(batches)

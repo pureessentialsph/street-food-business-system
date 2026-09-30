@@ -95,11 +95,9 @@ export async function saveRecipeLine(
     const recipe = await ctx.db.recipe.findUnique({ where: { id: recipeId } });
     if (!recipe) return { ok: false, error: "That recipe no longer exists." };
 
-    // Percent in the form, fraction in the database — the engine multiplies by (1 + w).
     const data = {
       ingredientId: parsed.data.ingredientId,
       qtyInBaseUnit: parsed.data.qtyInBaseUnit,
-      wastagePct: (Number(parsed.data.wastagePct) / 100).toFixed(4),
       allocationBasis: parsed.data.allocationBasis,
       componentType: parsed.data.componentType,
     };

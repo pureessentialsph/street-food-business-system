@@ -129,24 +129,36 @@ describe("edge cases — costing and stock", () => {
     const recipe = {
       batchYieldPieces: 1,
       lines: [{
-        ingredientId: "x", ingredientName: "X", qtyInBaseUnit: 1, costPerBaseUnit: "10",
-        wastagePct: 0, allocationBasis: "PER_BATCH" as const, componentType: "RAW" as const,
+        ingredientId: "x", ingredientName: "X", qtyInBaseUnit: 1, costPerBaseUnit: "10", allocationBasis: "PER_BATCH" as const, componentType: "RAW" as const,
       }],
     };
     expect(costPerStick(recipe, 1).toFixed(2)).toBe("10.00");
   });
 
-  it("keeps the cost card adding up to the total at 100% wastage", () => {
+  it("keeps the cost card adding up to the total", () => {
     const recipe = {
       batchYieldPieces: 100,
       lines: [{
         ingredientId: "x", ingredientName: "X", qtyInBaseUnit: 100, costPerBaseUnit: "1",
-        wastagePct: "1", allocationBasis: "PER_BATCH" as const, componentType: "RAW" as const,
+        allocationBasis: "PER_BATCH" as const, componentType: "RAW" as const,
       }],
     };
     const breakdown = buildBreakdown(recipe, 4);
-    expect(breakdown.costPerStick).toBe("8.0000"); // 100 × 1 × 2 / 100 × 4
-    expect(breakdown.wastageCost).toBe("4.0000");
+    expect(breakdown.costPerStick).toBe("4.0000"); // 100 × 1 / 100 pieces × 4 per stick
+    const components = Object.values(breakdown.byComponent)
+      .reduce((total, v) => total + Number(v), 0);
+    expect(components.toFixed(4)).toBe("4.0000");
+  });
+
+  it("carries no wastage inside a recipe — it is an expense, recorded when it happens", () => {
+    const recipe = {
+      batchYieldPieces: 100,
+      lines: [{
+        ingredientId: "x", ingredientName: "X", qtyInBaseUnit: 100, costPerBaseUnit: "1",
+        allocationBasis: "PER_BATCH" as const, componentType: "RAW" as const,
+      }],
+    };
+    expect(buildBreakdown(recipe, 4).wastageCost).toBe("0.0000");
   });
 
   it("keeps stock value sane after going negative and back", () => {

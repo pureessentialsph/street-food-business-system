@@ -5,6 +5,7 @@ import { can, seesAllBranches } from "@/lib/rbac";
 import { postAdjustment, rebuildStockBalances } from "@/lib/actions/inventory";
 import { dec, formatPHP, sum } from "@/lib/money";
 import { LOCATION_LABEL, locationNames } from "@/lib/inventory-labels";
+import { formatExactQty } from "@/lib/units";
 import { DataTable, PageHeader, SearchBar } from "@/components/data-table";
 import { ActionButton } from "@/components/action-button";
 import { EntityForm } from "@/components/entity-form";
@@ -223,7 +224,7 @@ export default async function InventoryPage({
             numeric: true,
             cell: (r) => (
               <span className={dec(r.qty).isNegative() ? "font-medium text-red-700" : ""}>
-                {dec(r.qty).toFixed(0)}
+                {formatExactQty(r.qty)}
               </span>
             ),
           },

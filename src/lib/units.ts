@@ -48,6 +48,22 @@ export function setCredits(sticksSold: unknown, requiredSticks: unknown): number
   return ratio.floor().toNumber();
 }
 
+/**
+ * A quantity written as it actually is: whole when it is whole, with its decimals when
+ * it is not.
+ *
+ * Rounding to whole pieces on screen once made a recipe's 2% wastage look like a bug —
+ * consuming 285.6 frozen squidballs was shown as 286, and then the column did not add
+ * up. A ledger that rounds is a ledger people stop believing.
+ */
+export function formatExactQty(value: unknown): string {
+  const d = dec(value as never);
+  const rounded = d.toDecimalPlaces(4);
+  return rounded.isInteger()
+    ? rounded.toNumber().toLocaleString("en-PH")
+    : rounded.toNumber().toLocaleString("en-PH", { maximumFractionDigits: 4 });
+}
+
 export function formatPieces(pieces: unknown): string {
   const p = qty(pieces as never, 0);
   return `${p.toNumber().toLocaleString("en-PH")} pcs`;

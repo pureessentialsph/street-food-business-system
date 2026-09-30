@@ -176,9 +176,6 @@ export default async function ProductCostingPage({
                           {formatPHP(line.ingredient.currentCostPerBaseUnit)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono tabular-nums">
-                          {dec(line.wastagePct).times(100).toFixed(1)}%
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono tabular-nums">
                           {detail ? formatPHP(detail.totalCost) : "—"}
                         </td>
                         <td className="px-3 py-2 text-right font-mono tabular-nums font-medium">
@@ -263,15 +260,6 @@ export default async function ProductCostingPage({
                 </Field>
                 <Field label="Quantity in base units" name="qtyInBaseUnit" required hint="Grams, millilitres or pieces, matching the ingredient.">
                   <NumberInput id="qtyInBaseUnit" name="qtyInBaseUnit" required placeholder="0" defaultValue={editingLine?.qtyInBaseUnit.toString() ?? ""} />
-                </Field>
-                <Field label="Wastage %" name="wastagePct" required hint="Trim, spillage and breakage on this line. 0 if none.">
-                  <NumberInput
-                    id="wastagePct"
-                    name="wastagePct"
-                    required
-                    // stored as a fraction, shown as the percent the form asks for
-                    defaultValue={editingLine ? dec(editingLine.wastagePct).times(100).toFixed(2) : "0"}
-                  />
                 </Field>
                 <Field label="Component type" name="componentType" required hint="Groups the cost card so you can see what packaging really costs you.">
                   <Select id="componentType" name="componentType" defaultValue={editingLine?.componentType ?? "RAW"}>

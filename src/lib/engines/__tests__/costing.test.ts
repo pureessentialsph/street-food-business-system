@@ -11,14 +11,14 @@ import {
 const kwekKwek: CostingRecipe = {
   batchYieldPieces: 200,
   lines: [
-    { ingredientId: "egg", ingredientName: "Quail egg", qtyInBaseUnit: 200, costPerBaseUnit: "1.20", wastagePct: 0, allocationBasis: "PER_BATCH", componentType: "RAW" },
-    { ingredientId: "flour", ingredientName: "Flour", qtyInBaseUnit: 500, costPerBaseUnit: "0.06", wastagePct: 0, allocationBasis: "PER_BATCH", componentType: "RAW" },
-    { ingredientId: "starch", ingredientName: "Cornstarch", qtyInBaseUnit: 200, costPerBaseUnit: "0.08", wastagePct: 0, allocationBasis: "PER_BATCH", componentType: "RAW" },
-    { ingredientId: "season", ingredientName: "Seasoning", qtyInBaseUnit: 50, costPerBaseUnit: "0.20", wastagePct: 0, allocationBasis: "PER_BATCH", componentType: "RAW" },
-    { ingredientId: "colour", ingredientName: "Food colouring", qtyInBaseUnit: 1, costPerBaseUnit: "5.00", wastagePct: 0, allocationBasis: "PER_BATCH", componentType: "RAW" },
-    { ingredientId: "oil", ingredientName: "Cooking oil", qtyInBaseUnit: 1, costPerBaseUnit: "0.35", wastagePct: 0, allocationBasis: "PER_PIECE", componentType: "OIL" },
-    { ingredientId: "pack", ingredientName: "Cup and stick", qtyInBaseUnit: 1, costPerBaseUnit: "0.80", wastagePct: 0, allocationBasis: "PER_STICK", componentType: "PACKAGING" },
-    { ingredientId: "sauce", ingredientName: "Sauce", qtyInBaseUnit: 1, costPerBaseUnit: "1.20", wastagePct: 0, allocationBasis: "PER_STICK", componentType: "CONDIMENT" },
+    { ingredientId: "egg", ingredientName: "Quail egg", qtyInBaseUnit: 200, costPerBaseUnit: "1.20", allocationBasis: "PER_BATCH", componentType: "RAW" },
+    { ingredientId: "flour", ingredientName: "Flour", qtyInBaseUnit: 500, costPerBaseUnit: "0.06", allocationBasis: "PER_BATCH", componentType: "RAW" },
+    { ingredientId: "starch", ingredientName: "Cornstarch", qtyInBaseUnit: 200, costPerBaseUnit: "0.08", allocationBasis: "PER_BATCH", componentType: "RAW" },
+    { ingredientId: "season", ingredientName: "Seasoning", qtyInBaseUnit: 50, costPerBaseUnit: "0.20", allocationBasis: "PER_BATCH", componentType: "RAW" },
+    { ingredientId: "colour", ingredientName: "Food colouring", qtyInBaseUnit: 1, costPerBaseUnit: "5.00", allocationBasis: "PER_BATCH", componentType: "RAW" },
+    { ingredientId: "oil", ingredientName: "Cooking oil", qtyInBaseUnit: 1, costPerBaseUnit: "0.35", allocationBasis: "PER_PIECE", componentType: "OIL" },
+    { ingredientId: "pack", ingredientName: "Cup and stick", qtyInBaseUnit: 1, costPerBaseUnit: "0.80", allocationBasis: "PER_STICK", componentType: "PACKAGING" },
+    { ingredientId: "sauce", ingredientName: "Sauce", qtyInBaseUnit: 1, costPerBaseUnit: "1.20", allocationBasis: "PER_STICK", componentType: "CONDIMENT" },
   ],
 };
 
@@ -72,27 +72,22 @@ describe("costing — allocation bases", () => {
   });
 });
 
-describe("costing — wastage", () => {
-  it("adds the wastage allowance on top of the line", () => {
+describe("costing — a line costs what it says", () => {
+  it("does not inflate a line by anything", () => {
     const line = {
       ingredientId: "egg", ingredientName: "Quail egg", qtyInBaseUnit: 200,
-      costPerBaseUnit: "1.20", wastagePct: "0.05",
+      costPerBaseUnit: "1.20",
       allocationBasis: "PER_BATCH" as const, componentType: "RAW" as const,
     };
-    // 240 × 1.05 — five per cent of quail eggs crack before they are cooked.
-    expect(lineCost(line).toFixed(4)).toBe("252.0000");
+    // 200 × 1.20, full stop. A recipe line once carried a wastage percentage that
+    // quietly raised both this figure and what a batch consumed; waste is now recorded
+    // when it happens, because it is an operating expense and not cost of goods.
+    expect(lineCost(line).toFixed(4)).toBe("240.0000");
   });
 
-  it("reports wastage separately so spillage is visible, not buried", () => {
-    const withWastage: CostingRecipe = {
-      ...kwekKwek,
-      lines: kwekKwek.lines.map((l) =>
-        l.ingredientId === "egg" ? { ...l, wastagePct: "0.05" } : l),
-    };
-    const breakdown = buildBreakdown(withWastage, 4);
-    // ₱12 of cracked eggs over a 200-piece batch, on a 4-piece stick.
-    expect(breakdown.wastageCost).toBe("0.2400");
-    expect(breakdown.costPerStick).toBe("9.6600");
+  it("reports no wastage cost inside the recipe", () => {
+    const breakdown = buildBreakdown(kwekKwek, 4);
+    expect(breakdown.wastageCost).toBe("0.0000");
   });
 });
 

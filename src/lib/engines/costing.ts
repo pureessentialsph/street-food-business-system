@@ -19,7 +19,6 @@ export type CostingLine = {
   baseUnit?: string;
   qtyInBaseUnit: Decimal | string | number;
   /** Fraction, not percent: 0.05 means 5% trim or spillage on this line. */
-  wastagePct: Decimal | string | number;
   allocationBasis: AllocationBasis;
   componentType: ComponentType;
   costPerBaseUnit: Decimal | string | number;
@@ -59,10 +58,18 @@ export type CostBreakdown = {
   lines: LineCost[];
 };
 
-/** qty × unit cost, plus this line's wastage allowance. */
+/**
+ * qty × unit cost. Nothing else.
+ *
+ * A recipe line once carried a wastage percentage that quietly inflated both the cost
+ * and what a batch consumed — 2% on frozen squidball meant producing 280 pieces ate
+ * 285.6. That contradicted the rule this business actually runs on: wastage is an
+ * operating expense, not cost of goods (spec §15.8). Waste is now recorded when it
+ * happens — the batch form's wasted count, a stock adjustment, a shift's wastage —
+ * rather than assumed in advance.
+ */
 export function lineCost(line: CostingLine): Decimal {
-  const base = dec(line.qtyInBaseUnit).times(dec(line.costPerBaseUnit));
-  return base.times(dec(1).plus(dec(line.wastagePct)));
+  return dec(line.qtyInBaseUnit).times(dec(line.costPerBaseUnit));
 }
 
 function linesOf(recipe: CostingRecipe, basis: AllocationBasis): CostingLine[] {

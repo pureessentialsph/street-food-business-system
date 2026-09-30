@@ -48,7 +48,6 @@ async function loadRecipe(db: ScopedDb, productId: string) {
       ingredientName: line.ingredient.name,
       baseUnit: line.ingredient.baseUnit,
       qtyInBaseUnit: line.qtyInBaseUnit.toString(),
-      wastagePct: line.wastagePct.toString(),
       allocationBasis: line.allocationBasis,
       componentType: line.componentType,
       costPerBaseUnit: line.ingredient.currentCostPerBaseUnit.toString(),

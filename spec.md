@@ -196,7 +196,7 @@ Product        sku, name, categoryId, sellingUnit[PIECE|STICK],
                imageKey?, isActive
 Recipe         productId, version, batchYieldPieces Decimal, isActive,
                effectiveFrom, notes
-RecipeLine     recipeId, ingredientId, qtyInBaseUnit Decimal, wastagePct,
+RecipeLine     recipeId, ingredientId, qtyInBaseUnit Decimal,
                allocationBasis[PER_BATCH|PER_PIECE|PER_STICK],
                componentType[RAW|PACKAGING|CONDIMENT|OIL|CONSUMABLE]
 ProductCostVersion productId, recipeVersion, effectiveFrom,
@@ -373,7 +373,7 @@ Receiving a PO line **updates the ingredient's cost** (weighted average) and wri
 ```
 lineCost(line, ingredientCostPerBaseUnit):
     base = line.qtyInBaseUnit × ingredientCostPerBaseUnit
-    return base × (1 + line.wastagePct)
+    return base   // exactly what the recipe says; see §15.8
 
 costPerPiece(recipe):
     perBatch   = Σ lineCost(l) for l.allocationBasis == PER_BATCH
@@ -556,7 +556,7 @@ Report dimensions required for MVP: product, category, branch, cart, location, e
 
 ### 11.1 Costing — Kwek-kwek
 
-Batch yields **200 pieces**; product `sellingUnit = STICK`, `piecesPerStick = 4`; `wastagePct = 0` for all lines.
+Batch yields **200 pieces**; product `sellingUnit = STICK`, `piecesPerStick = 4`.
 
 | Component | Basis | Cost |
 |---|---|---|
@@ -711,7 +711,7 @@ Every item below has been answered. Nothing in this spec is waiting on a decisio
 5. ✅ **CONFIRMED — Cash shortages are deducted in full, uncapped**, from incentive first and then base pay, and only when the vendor has acknowledged the count (§7). `maxShortageDeduction` stays in the schema as a nullable cap for later use; seed it `null`.
 6. ✅ **CONFIRMED — web app, online-only.** Mobile-friendly, installable as a PWA later. Shift closing stays a single idempotent payload with a client-generated `idempotencyKey` so offline support can be added without a rewrite, but no offline code ships in the MVP.
 7. ✅ **CONFIRMED — a set is a five-product bundle of 250 sticks, and a stick is a product-specific number of pieces** (§5.3.1). Set credit is counted on the **day's total sticks sold per product**, across the morning load-out and every refill.
-8. ✅ **CONFIRMED — Wastage cost is an operating expense, not COGS**, reported as its own line per cart so product margins stay comparable across carts.
+8. ✅ **CONFIRMED — Wastage cost is an operating expense, not COGS**, reported as its own line per cart so product margins stay comparable across carts. A recipe line therefore carries **no wastage allowance**: it states exactly what a batch consumes. Waste is recorded when it happens — the wasted count on a production batch, a stock adjustment, a shift's wastage — never assumed in advance. An allowance in the recipe silently inflated both the cost and what a batch consumed (2% on frozen squidball meant 280 pieces ate 285.6) and contradicted this very rule.
 9. ✅ **CONFIRMED — Supervisors enter all cart data for all their carts.** Vendors have no accounts in the MVP. Shift screens are built for batch operation, approval is independent of the person who closed the shift, and vendor acknowledgment is captured at closing.
 10. ✅ **CONFIRMED — One company-wide price list.** Same peso price per product at every branch, cart, and location; promos are recorded as per-shift discounts. Branch/cart price scoping stays in the schema, unused (§5.3).
 

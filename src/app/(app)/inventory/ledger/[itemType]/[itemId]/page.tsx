@@ -4,6 +4,7 @@ import type { ItemType } from "@prisma/client";
 import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can } from "@/lib/rbac";
+import { formatExactQty } from "@/lib/units";
 import { dec, formatPHP, sum } from "@/lib/money";
 import { LOCATION_LABEL, TXN_LABEL, locationNames } from "@/lib/inventory-labels";
 import { PageHeader } from "@/components/data-table";
@@ -58,7 +59,7 @@ export default async function ItemLedgerPage({
   let running = dec(0);
   const ordered = [...transactions].reverse().map((txn) => {
     running = running.plus(txn.qty.toString());
-    return { ...txn, running: running.toFixed(0) };
+    return { ...txn, running: formatExactQty(running) };
   });
   const rows = ordered.reverse();
 
@@ -66,7 +67,7 @@ export default async function ItemLedgerPage({
     <div className="space-y-5">
       <PageHeader
         title={`${item.name} — stock ledger`}
-        subtitle={`${item.sku} · ${dec(totalOnHand).toFixed(0)} on hand across ${balances.length} location${balances.length === 1 ? "" : "s"}`}
+        subtitle={`${item.sku} · ${formatExactQty(totalOnHand)} on hand across ${balances.length} location${balances.length === 1 ? "" : "s"}`}
         action={<Link href="/inventory" className="text-sm font-medium text-brand-700 hover:underline">← All stock</Link>}
       />
 
@@ -84,7 +85,7 @@ export default async function ItemLedgerPage({
                     <span className="text-xs uppercase tracking-wide text-stone-400">{LOCATION_LABEL[balance.locationType]}</span>
                   </span>
                   <span className="font-mono tabular-nums">
-                    <span className={dec(balance.qty).isNegative() ? "text-red-700" : ""}>{dec(balance.qty).toFixed(0)}</span>
+                    <span className={dec(balance.qty).isNegative() ? "text-red-700" : ""}>{formatExactQty(balance.qty)}</span>
                     <span className="ml-3 text-stone-500">{formatPHP(balance.avgUnitCost)} avg</span>
                   </span>
                 </li>
@@ -134,7 +135,7 @@ export default async function ItemLedgerPage({
                         <td className="px-3 py-2"><Badge>{TXN_LABEL[txn.type]}</Badge></td>
                         <td className="px-3 py-2">{names.get(txn.locationId) ?? txn.locationId}</td>
                         <td className={`px-3 py-2 text-right font-mono tabular-nums ${qty.isNegative() ? "text-red-700" : "text-emerald-700"}`}>
-                          {qty.isPositive() ? "+" : ""}{qty.toFixed(0)}
+                          {qty.isPositive() ? "+" : ""}{formatExactQty(qty)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-500">{txn.running}</td>
                         <td className="px-3 py-2 text-stone-600">{txn.createdById ? userName.get(txn.createdById) ?? "—" : "system"}</td>
@@ -143,7 +144,7 @@ export default async function ItemLedgerPage({
                           {writable && txn.refType !== "Reversal" && !reversed.has(txn.id) ? (
                             <ReverseEntryButton
                               txnId={txn.id}
-                              describe={`${TXN_LABEL[txn.type].toLowerCase()} of ${qty.toFixed(0)} on ${txn.occurredAt.toLocaleDateString("en-PH", { dateStyle: "medium" })}`}
+                              describe={`${TXN_LABEL[txn.type].toLowerCase()} of ${formatExactQty(qty)} on ${txn.occurredAt.toLocaleDateString("en-PH", { dateStyle: "medium" })}`}
                             />
                           ) : reversed.has(txn.id) ? (
                             <span className="text-xs text-stone-400">undone</span>

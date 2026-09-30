@@ -748,7 +748,6 @@ model RecipeLine {
   ingredientId    String
   qtyInBaseUnit   Decimal         @db.Decimal(14, 4)
   /// Trim, spillage and breakage on this line, as a fraction: 0.05 = 5%.
-  wastagePct      Decimal         @default(0) @db.Decimal(14, 4)
   allocationBasis AllocationBasis @default(PER_BATCH)
   componentType   ComponentType   @default(RAW)
   createdAt       DateTime        @default(now())

@@ -169,9 +169,17 @@ export default async function GuidePage() {
                 <p>
                   Each line says <strong>how it is charged</strong>: per batch for flour and eggs,
                   per piece for frying oil, per stick for the stick, cup and sauce. Press{" "}
-                  <em>Edit</em> on a line to change a quantity or its wastage; the cost per stick
-                  is recalculated as you save, and the old figure is kept so past shifts keep the
-                  cost that applied on their day.
+                  <em>Edit</em> on a line to change a quantity; the cost per stick is recalculated
+                  as you save, and the old figure is kept so past shifts keep the cost that
+                  applied on their day.
+                </p>
+                <p>
+                  A recipe states <strong>exactly what a batch consumes</strong> — there is no
+                  wastage allowance in it. Put 250 frozen squidballs against a 250-piece batch and
+                  producing 280 consumes 280, not 286. Waste is recorded when it actually happens:
+                  the wasted count on a batch, a stock adjustment, or a shift&rsquo;s wastage. It
+                  is an operating expense, not cost of goods, so it stays out of the recipe and
+                  shows on its own line in the P&amp;L.
                 </p>
                 <Warn>
                   A product with no recipe makes your margins look far better than they are. The
