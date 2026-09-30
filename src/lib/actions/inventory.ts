@@ -4,6 +4,8 @@ import { z } from "zod";
 import { businessDateFor, toDateColumn } from "@/lib/businessDate";
 import { dec, formatPHP } from "@/lib/money";
 import { costPerPiece } from "@/lib/engines/costing";
+import { replay } from "@/lib/engines/inventory";
+import { correctionEntries, targetWithout } from "@/lib/engines/ledger-correction";
 import { adjustmentUnitCost } from "@/lib/engines/inventory";
 import { nextReference, onHand, postLedger, rebuildBalances, type LedgerEntry } from "@/lib/inventory-service";
 import { decimalString, optionalNonNegativeDecimal } from "@/lib/validation/masterdata";
@@ -466,6 +468,87 @@ export async function postAdjustment(formData: FormData): Promise<ActionResult> 
         (costing.enteredCostIgnored
           ? " — the cost you entered was ignored; stock leaves at its running average."
           : "."),
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Undo one ledger entry.
+ *
+ * Not a delete. The ledger is append-only because it is the record every balance is
+ * rebuilt from and every argument settled by; removing a row would leave a balance
+ * nobody could explain. This posts the movements that put the balance back where it
+ * would have been, and both the mistake and its undoing stay on the page.
+ *
+ * It is also not the plain opposite of the row. An outbound leaves the average cost
+ * untouched, so cancelling a bogus "+20 at ₱0" with a "−20" fixes the count and leaves
+ * the average dragged down for good — see ledger-correction.ts.
+ */
+export async function reverseLedgerEntry(txnId: string, reason: string): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("inventory.write");
+    const note = reason.trim();
+    if (note.length < 3) return { ok: false, error: "Say why this entry is being undone." };
+
+    const entry = await ctx.db.inventoryTransaction.findUnique({ where: { id: txnId } });
+    if (!entry) return { ok: false, error: "That entry no longer exists." };
+    /** Reversals are marked by refType, so they cannot themselves be reversed twice. */
+    if (entry.refType === "Reversal") {
+      return { ok: false, error: "That entry is itself a correction, so there is nothing to undo." };
+    }
+    const already = await ctx.db.inventoryTransaction.findFirst({
+      where: { refType: "Reversal", refId: txnId },
+    });
+    if (already) return { ok: false, error: "That entry has already been undone." };
+
+    /** Every movement for this item at this location, oldest first, as the balance saw them. */
+    const history = await ctx.db.inventoryTransaction.findMany({
+      where: {
+        itemType: entry.itemType,
+        itemId: entry.itemId,
+        locationType: entry.locationType,
+        locationId: entry.locationId,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    const index = history.findIndex((h) => h.id === txnId);
+    if (index === -1) return { ok: false, error: "That entry no longer exists." };
+
+    const movements = history.map((h) => ({ qty: h.qty.toString(), unitCost: h.unitCost.toString() }));
+    const current = replay(movements);
+    const target = targetWithout(movements, index);
+    const plan = correctionEntries(current, target);
+
+    if (plan.length === 0) {
+      return { ok: false, error: "Undoing that entry would change nothing." };
+    }
+
+    await postLedger(
+      ctx.db,
+      plan.map((p) => ({
+        itemType: entry.itemType,
+        itemId: entry.itemId,
+        locationType: entry.locationType,
+        locationId: entry.locationId,
+        qty: p.qty,
+        unitCost: p.unitCost,
+        type: "ADJUSTMENT" as const,
+        refType: "Reversal",
+        refId: txnId,
+        businessDate: today(),
+        reason: `Undoing ${entry.type.toLowerCase()} of ${dec(entry.qty).toFixed(0)} — ${note} (${p.note})`,
+      })),
+      ctx.user.id,
+    );
+
+    refresh("/inventory", `/inventory/ledger/${entry.itemType}/${entry.itemId}`);
+    return {
+      ok: true,
+      message:
+        `Undone. ${dec(target.qty).toFixed(0)} left` +
+        (target.qty.isZero() ? "." : ` at ${formatPHP(target.avgUnitCost)} each.`),
     };
   } catch (error) {
     return toActionError(error);

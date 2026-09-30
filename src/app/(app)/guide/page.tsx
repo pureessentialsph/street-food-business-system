@@ -375,6 +375,19 @@ export default async function GuidePage() {
               write whatever profit figure they liked.
             </Note>
             <p className="text-sm text-stone-600">
+              Recorded something by mistake? Open the item&rsquo;s ledger from{" "}
+              <Link href="/inventory" className="text-brand-700 hover:underline">/inventory</Link>{" "}
+              and press <strong>Undo</strong> on the row, giving a reason. The row stays and a
+              correction is posted beside it, so the history still explains itself.
+            </p>
+            <Note>
+              Undo is not simply the opposite of the row, and the difference matters. Stock
+              leaving never changes what the rest cost — so cancelling a mistaken &ldquo;20
+              pieces at ₱0&rdquo; with &ldquo;minus 20&rdquo; would fix the count and leave the
+              average price wrong for good. Undo works out what the balance would have been had
+              the entry never happened, and puts it back there: quantity and cost both.
+            </Note>
+            <p className="text-sm text-stone-600">
               If a balance ever looks wrong, <strong>Rebuild from ledger</strong> on{" "}
               <Link href="/inventory" className="text-brand-700 hover:underline">/inventory</Link>{" "}
               recalculates every balance from the movements. The ledger is the truth; the balances
