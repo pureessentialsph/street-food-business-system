@@ -285,8 +285,11 @@ export default async function GuidePage() {
               <Step n={2} title="Morning — issue the load-out">
                 <p>
                   Enter the pieces of each product going onto the cart. The system suggests
-                  quantities from what that cart usually sells. Stock moves from the branch to the
-                  vendor, and the branch balance drops.
+                  quantities from what that cart usually sells. Stock moves{" "}
+                  <strong>from the commissary</strong> to the vendor, and the commissary balance
+                  drops — the commissary cooks everything and the carts draw from it, so there is
+                  no transfer to a branch first. Anything unsold comes back to the commissary at
+                  closing, ready to go out again.
                 </p>
                 <p>
                   Issue the supplies too — sauce, cups, sticks, napkins, LPG. These are tracked

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { businessDateFor, toDateColumn } from "@/lib/businessDate";
 import { dec } from "@/lib/money";
+import type { ScopedDb } from "@/lib/db";
 import { costAsOf } from "@/lib/costing-service";
 import { postLedger, postLedgerWithin, type LedgerEntry } from "@/lib/inventory-service";
 import { reconcileShift, validateClosing, type ReconciliationLineInput } from "@/lib/engines/reconciliation";
@@ -29,6 +30,40 @@ async function companySettings(db: { company: { findFirst: (a: never) => Promise
 }
 
 /** Open today's shift for one cart, defaulting to the cart's usual vendor. */
+/**
+ * Where a cart's stock comes from, and goes back to.
+ *
+ * The commissary cooks everything and the carts draw from it; a branch is where a cart
+ * stands, not a stockroom. Issuing from the branch meant every load-out needed a
+ * transfer first, and anything unsold came back to a branch where it could never be
+ * re-issued — stock stranded one step from the people who needed it.
+ *
+ * A cart whose own branch IS a commissary draws from itself. With several commissaries
+ * and no way to say which, this refuses rather than guessing: picking one silently
+ * would move stock out of a place nobody chose.
+ */
+async function supplyLocationFor(
+  db: ScopedDb,
+  branchId: string,
+): Promise<{ ok: true; id: string; name: string } | { ok: false; error: string }> {
+  const own = await db.branch.findUnique({ where: { id: branchId } });
+  if (own?.type === "COMMISSARY") return { ok: true, id: own.id, name: own.code };
+
+  const commissaries = await db.branch.findMany({ where: { type: "COMMISSARY", isActive: true } });
+  if (commissaries.length === 1) {
+    return { ok: true, id: commissaries[0]!.id, name: commissaries[0]!.code };
+  }
+  if (commissaries.length === 0) {
+    return { ok: false, error: "No commissary is set up, so there is nowhere to issue stock from." };
+  }
+  return {
+    ok: false,
+    error:
+      `There are ${commissaries.length} commissaries and nothing says which supplies ` +
+      `this cart. Mark all but one inactive, or tell me and I will add the setting.`,
+  };
+}
+
 export async function openShift(
   cartId: string,
   employeeId: string | null,
@@ -172,12 +207,15 @@ export async function issueStock(
      * here — while the supervisor is standing at the branch and can post the missing
      * production or receipt — rather than in a stock report next month.
      */
+    const supply = await supplyLocationFor(ctx.db, shift.branchId);
+    if (!supply.ok) return { ok: false, error: supply.error };
+
     const balances = await ctx.db.stockBalance.findMany({
       where: {
         itemType: "PRODUCT",
         itemId: { in: wanted.map((w) => w.productId) },
         locationType: "BRANCH",
-        locationId: shift.branchId,
+        locationId: supply.id,
       },
     });
     const onHandOf = new Map(balances.map((b) => [b.itemId, dec(b.qty)]));
@@ -194,7 +232,7 @@ export async function issueStock(
       return {
         ok: false,
         error:
-          `Not enough stock at the branch for ${shortfalls
+          `Not enough stock at ${supply.name} for ${shortfalls
             .map((s) => `${s.name} (${s.available.toFixed(0)} on hand, ${s.want.toFixed(0)} wanted)`)
             .join(", ")}. Record the production batch or receipt first, or reduce the quantity.`,
       };
@@ -236,7 +274,7 @@ export async function issueStock(
       // Stock leaves the branch and lands with the vendor, so it can be traced to a person.
       entries.push({
         itemType: "PRODUCT", itemId: product.id,
-        locationType: "BRANCH", locationId: shift.branchId,
+        locationType: "BRANCH", locationId: supply.id,
         qty: dec(line.qtyPieces).negated().toFixed(4), unitCost,
         type: "ISSUE_TO_VENDOR", refType: "ShiftIssue", refId: issue.id,
         businessDate: shift.businessDate,
@@ -341,6 +379,10 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
       return { ok: false, error: issues.map((i) => i.message).join(" ") };
     }
 
+    /** Unsold stock goes back where it came from, or it is stranded. */
+    const supply = await supplyLocationFor(ctx.db, shift.branchId);
+    if (!supply.ok) return { ok: false, error: supply.error };
+
     const settings = await companySettings(ctx.db as never, ctx.user.companyId);
     const result = reconcileShift(
       {
@@ -378,10 +420,10 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
         });
         entries.push({
           itemType: "PRODUCT", itemId: line.productId,
-          locationType: "BRANCH", locationId: shift.branchId,
+          locationType: "BRANCH", locationId: supply.id,
           qty: line.piecesReturned.toFixed(4), unitCost: cost,
           type: "RETURN_FROM_VENDOR", refType: "CartShift", refId: shiftId,
-          businessDate: shift.businessDate, reason: "Returned at closing",
+          businessDate: shift.businessDate, reason: `Returned at closing to ${supply.name}`,
         });
       }
       if (line.piecesWasted.greaterThan(0)) {
@@ -692,6 +734,9 @@ export async function issueSupplies(
     if (shift.status === "APPROVED") return { ok: false, error: "This shift is approved and locked." };
     assertScope(ctx.user, shift.branchId);
 
+    const supplyFrom = await supplyLocationFor(ctx.db, shift.branchId);
+    if (!supplyFrom.ok) return { ok: false, error: supplyFrom.error };
+
     const ingredients = await ctx.db.ingredient.findMany({
       where: { id: { in: wanted.map((w) => w.ingredientId) } },
     });
@@ -727,7 +772,7 @@ export async function issueSupplies(
 
       entries.push({
         itemType: "INGREDIENT", itemId: ingredient.id,
-        locationType: "BRANCH", locationId: shift.branchId,
+        locationType: "BRANCH", locationId: supplyFrom.id,
         qty: dec(item.qty).negated().toFixed(4), unitCost,
         type: "TRANSFER_OUT", refType: "CartShift", refId: shiftId,
         businessDate: shift.businessDate, reason: "Cart supplies issued",
@@ -775,6 +820,9 @@ export async function countSuppliesBack(
     if (shift.status === "APPROVED") return { ok: false, error: "This shift is approved and locked." };
     assertScope(ctx.user, shift.branchId);
 
+    const supplyFrom = await supplyLocationFor(ctx.db, shift.branchId);
+    if (!supplyFrom.ok) return { ok: false, error: supplyFrom.error };
+
     const entries: LedgerEntry[] = [];
     let consumedLines = 0;
 
@@ -800,14 +848,14 @@ export async function countSuppliesBack(
           locationType: "CART", locationId: shift.cartId,
           qty: returned.negated().toFixed(4), unitCost: supply.unitCost.toFixed(4),
           type: "TRANSFER_OUT", refType: "CartShift", refId: shiftId,
-          businessDate: shift.businessDate, reason: "Supplies returned to branch",
+          businessDate: shift.businessDate, reason: "Supplies returned",
         });
         entries.push({
           itemType: "INGREDIENT", itemId: supply.ingredientId,
-          locationType: "BRANCH", locationId: shift.branchId,
+          locationType: "BRANCH", locationId: supplyFrom.id,
           qty: returned.toFixed(4), unitCost: supply.unitCost.toFixed(4),
           type: "TRANSFER_IN", refType: "CartShift", refId: shiftId,
-          businessDate: shift.businessDate, reason: "Supplies returned to branch",
+          businessDate: shift.businessDate, reason: `Supplies returned to ${supplyFrom.name}`,
         });
       }
 
