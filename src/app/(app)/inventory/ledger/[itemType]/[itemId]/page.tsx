@@ -49,10 +49,21 @@ export default async function ItemLedgerPage({
 
   const userName = new Map(users.map((u) => [u.id, u.name]));
   const writable = can(user, "inventory.write");
-  /** Rows already undone, so the button does not offer to undo them twice. */
-  const reversed = new Set(
+  /**
+   * Rows already undone. A correction names one row of the document it reversed, so
+   * mark every row of that document — otherwise the other legs of an undone batch
+   * still offer a button that would only refuse.
+   */
+  const reversedRowIds = new Set(
     transactions.filter((t) => t.refType === "Reversal").map((t) => t.refId),
   );
+  const undoneDocuments = new Set(
+    transactions
+      .filter((t) => reversedRowIds.has(t.id) && t.refType !== "Manual")
+      .map((t) => `${t.refType}|${t.refId}`),
+  );
+  const isUndone = (t: { id: string; refType: string; refId: string }) =>
+    reversedRowIds.has(t.id) || undoneDocuments.has(`${t.refType}|${t.refId}`);
   const totalOnHand = sum(balances.map((b) => b.qty));
 
   // Running balance, oldest first, so the newest row shows today's position.
@@ -141,12 +152,12 @@ export default async function ItemLedgerPage({
                         <td className="px-3 py-2 text-stone-600">{txn.createdById ? userName.get(txn.createdById) ?? "—" : "system"}</td>
                         <td className="px-3 py-2 text-stone-500">{txn.reason ?? "—"}</td>
                         <td className="px-3 py-2 text-right">
-                          {writable && txn.refType !== "Reversal" && !reversed.has(txn.id) ? (
+                          {writable && txn.refType !== "Reversal" && !isUndone(txn) ? (
                             <ReverseEntryButton
                               txnId={txn.id}
                               describe={`${TXN_LABEL[txn.type].toLowerCase()} of ${formatExactQty(qty)} on ${txn.occurredAt.toLocaleDateString("en-PH", { dateStyle: "medium" })}`}
                             />
-                          ) : reversed.has(txn.id) ? (
+                          ) : isUndone(txn) ? (
                             <span className="text-xs text-stone-400">undone</span>
                           ) : null}
                         </td>

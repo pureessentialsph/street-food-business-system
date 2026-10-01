@@ -1,13 +1,16 @@
 "use server";
 
 import { z } from "zod";
+import type { ItemType, StockLocationType } from "@prisma/client";
 import { businessDateFor, toDateColumn } from "@/lib/businessDate";
 import { dec, formatPHP } from "@/lib/money";
 import { costPerPiece } from "@/lib/engines/costing";
 import { replay } from "@/lib/engines/inventory";
-import { correctionEntries, targetWithout } from "@/lib/engines/ledger-correction";
+import { correctionEntries } from "@/lib/engines/ledger-correction";
 import { adjustmentUnitCost } from "@/lib/engines/inventory";
-import { nextReference, onHand, postLedger, rebuildBalances, type LedgerEntry } from "@/lib/inventory-service";
+import {
+  nextReference, onHand, postLedger, postLedgerWithin, rebuildBalances, type LedgerEntry,
+} from "@/lib/inventory-service";
 import { decimalString, optionalNonNegativeDecimal } from "@/lib/validation/masterdata";
 import { assertScope } from "@/lib/rbac";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
@@ -486,6 +489,13 @@ export async function postAdjustment(formData: FormData): Promise<ActionResult> 
  * untouched, so cancelling a bogus "+20 at ₱0" with a "−20" fixes the count and leaves
  * the average dragged down for good — see ledger-correction.ts.
  */
+/**
+ * A row posted on its own, by hand. Anything else belongs to a document — a batch, a
+ * delivery, a transfer, a shift — and those post several rows that only make sense
+ * together.
+ */
+const STANDALONE_REFS = new Set(["Manual"]);
+
 export async function reverseLedgerEntry(txnId: string, reason: string): Promise<ActionResult> {
   try {
     const ctx = await withPermission("inventory.write");
@@ -494,61 +504,101 @@ export async function reverseLedgerEntry(txnId: string, reason: string): Promise
 
     const entry = await ctx.db.inventoryTransaction.findUnique({ where: { id: txnId } });
     if (!entry) return { ok: false, error: "That entry no longer exists." };
-    /** Reversals are marked by refType, so they cannot themselves be reversed twice. */
     if (entry.refType === "Reversal") {
       return { ok: false, error: "That entry is itself a correction, so there is nothing to undo." };
     }
+
+    /**
+     * Undo the whole document, not the row you happened to click.
+     *
+     * A production batch consumes ingredients AND creates finished goods; a delivery
+     * receives several lines; a transfer takes stock out of one place and into
+     * another. Reversing one leg leaves the books claiming something impossible —
+     * squidballs made from no ingredients, stock in two places at once. This went
+     * wrong in exactly that way before the group was taken into account.
+     */
+    const siblings = STANDALONE_REFS.has(entry.refType)
+      ? [entry]
+      : await ctx.db.inventoryTransaction.findMany({
+          where: { refType: entry.refType, refId: entry.refId },
+        });
+    const siblingIds = siblings.map((row) => row.id);
+
     const already = await ctx.db.inventoryTransaction.findFirst({
-      where: { refType: "Reversal", refId: txnId },
+      where: { refType: "Reversal", refId: { in: siblingIds } },
     });
-    if (already) return { ok: false, error: "That entry has already been undone." };
+    if (already) return { ok: false, error: "That has already been undone." };
 
-    /** Every movement for this item at this location, oldest first, as the balance saw them. */
-    const history = await ctx.db.inventoryTransaction.findMany({
-      where: {
-        itemType: entry.itemType,
-        itemId: entry.itemId,
-        locationType: entry.locationType,
-        locationId: entry.locationId,
-      },
-      orderBy: { createdAt: "asc" },
-    });
-    const index = history.findIndex((h) => h.id === txnId);
-    if (index === -1) return { ok: false, error: "That entry no longer exists." };
-
-    const movements = history.map((h) => ({ qty: h.qty.toString(), unitCost: h.unitCost.toString() }));
-    const current = replay(movements);
-    const target = targetWithout(movements, index);
-    const plan = correctionEntries(current, target);
-
-    if (plan.length === 0) {
-      return { ok: false, error: "Undoing that entry would change nothing." };
+    /** Each place a balance is affected, so every one can be put back. */
+    const places = new Map<string, { itemType: ItemType; itemId: string; locationType: StockLocationType; locationId: string }>();
+    for (const row of siblings) {
+      places.set(`${row.itemType}|${row.itemId}|${row.locationType}|${row.locationId}`, {
+        itemType: row.itemType,
+        itemId: row.itemId,
+        locationType: row.locationType,
+        locationId: row.locationId,
+      });
     }
 
-    await postLedger(
-      ctx.db,
-      plan.map((p) => ({
-        itemType: entry.itemType,
-        itemId: entry.itemId,
-        locationType: entry.locationType,
-        locationId: entry.locationId,
-        qty: p.qty,
-        unitCost: p.unitCost,
-        type: "ADJUSTMENT" as const,
-        refType: "Reversal",
-        refId: txnId,
-        businessDate: today(),
-        reason: `Undoing ${entry.type.toLowerCase()} of ${dec(entry.qty).toFixed(0)} — ${note} (${p.note})`,
-      })),
-      ctx.user.id,
-    );
+    const removed = new Set(siblingIds);
+    const corrections: LedgerEntry[] = [];
+    const businessDate = today();
 
-    refresh("/inventory", `/inventory/ledger/${entry.itemType}/${entry.itemId}`);
+    for (const place of places.values()) {
+      const history = await ctx.db.inventoryTransaction.findMany({
+        where: {
+          itemType: place.itemType,
+          itemId: place.itemId,
+          locationType: place.locationType,
+          locationId: place.locationId,
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      const movements = history.map((h) => ({ qty: h.qty.toString(), unitCost: h.unitCost.toString() }));
+      const current = replay(movements);
+      const target = replay(
+        history.filter((h) => !removed.has(h.id))
+          .map((h) => ({ qty: h.qty.toString(), unitCost: h.unitCost.toString() })),
+      );
+
+      for (const plan of correctionEntries(current, target)) {
+        // A zero-quantity row moves nothing and only clutters the history.
+        if (dec(plan.qty).isZero()) continue;
+        corrections.push({
+          ...place,
+          qty: plan.qty,
+          unitCost: plan.unitCost,
+          type: "ADJUSTMENT",
+          refType: "Reversal",
+          refId: siblingIds[0]!,
+          businessDate,
+          reason: `Undoing ${entry.refType === "Manual" ? "a manual entry" : entry.refType} — ${note} (${plan.note})`,
+        });
+      }
+    }
+
+    if (corrections.length === 0) {
+      return { ok: false, error: "Undoing that would change nothing." };
+    }
+
+    await ctx.db.$transaction(async (tx) => {
+      await postLedgerWithin(tx as never, ctx.db.$companyId, corrections, ctx.user.id);
+      // An undone batch must stop claiming it produced anything.
+      if (entry.refType === "ProductionBatch") {
+        await tx.productionBatch.updateMany({
+          where: { id: entry.refId },
+          data: { status: "DRAFT", notes: `Undone: ${note}` },
+        });
+      }
+    });
+
+    refresh("/inventory", `/inventory/ledger/${entry.itemType}/${entry.itemId}`, "/inventory/production");
     return {
       ok: true,
       message:
-        `Undone. ${dec(target.qty).toFixed(0)} left` +
-        (target.qty.isZero() ? "." : ` at ${formatPHP(target.avgUnitCost)} each.`),
+        siblings.length > 1
+          ? `Undone — all ${siblings.length} movements from that ${entry.refType === "ProductionBatch" ? "batch" : "record"}.`
+          : "Undone.",
     };
   } catch (error) {
     return toActionError(error);
