@@ -36,9 +36,44 @@ async function setInForce(db: ScopedDb, businessDate: Date): Promise<SetDefiniti
 }
 
 /** Compute and store what one shift earned. Called at closing and on recalculation. */
+/**
+ * Pay for one shift, for every vendor who worked it.
+ *
+ * Two people often share a cart, and both are owed their day: each earns their own
+ * daily rate in full, and each earns the set incentive if the day met the condition.
+ * The incentive is not divided — the condition was met by the cart they both worked,
+ * and halving it would pay two people less for the same result than one person gets
+ * alone.
+ *
+ * Returns the primary vendor's result, which is what the closing screen shows.
+ */
 export async function computeShiftCompensation(
   db: ScopedDb,
   shiftId: string,
+): Promise<PayResult | null> {
+  const vendors = await db.cartShiftVendor.findMany({
+    where: { shiftId },
+    orderBy: { isPrimary: "desc" },
+  });
+
+  // A shift opened before vendors were a list still has its one on the shift itself.
+  if (vendors.length === 0) {
+    const shift = await db.cartShift.findUnique({ where: { id: shiftId } });
+    return shift ? computeShiftPayFor(db, shiftId, shift.employeeId) : null;
+  }
+
+  let primary: PayResult | null = null;
+  for (const vendor of vendors) {
+    const result = await computeShiftPayFor(db, shiftId, vendor.employeeId);
+    if (vendor.isPrimary) primary = result;
+  }
+  return primary ?? null;
+}
+
+async function computeShiftPayFor(
+  db: ScopedDb,
+  shiftId: string,
+  employeeId: string,
 ): Promise<PayResult | null> {
   const shift = await db.cartShift.findUnique({
     where: { id: shiftId },
@@ -47,7 +82,7 @@ export async function computeShiftCompensation(
   if (!shift) return null;
 
   const employee = await db.employee.findUnique({
-    where: { id: shift.employeeId },
+    where: { id: employeeId },
     include: { compensationScheme: { include: { rules: { where: { isActive: true } } } } },
   });
   if (!employee?.compensationScheme) return null;
@@ -71,7 +106,7 @@ export async function computeShiftCompensation(
 
   // Approved deductions raised against this shift, on top of any cash shortage.
   const extras = await db.deduction.findMany({
-    where: { shiftId, type: { not: "CASH_SHORTAGE" } },
+    where: { shiftId, employeeId, type: { not: "CASH_SHORTAGE" } },
   });
 
   const result = computeShiftPay({
@@ -106,9 +141,9 @@ export async function computeShiftCompensation(
   });
 
   await db.shiftCompensation.upsert({
-    where: { shiftId },
+    where: { shiftId_employeeId: { shiftId, employeeId: employee.id } },
     update: {
-      employeeId: shift.employeeId,
+      employeeId,
       schemeId: scheme.id,
       businessDate: shift.businessDate,
       basePay: result.basePay,
@@ -121,7 +156,7 @@ export async function computeShiftCompensation(
     create: {
       companyId: db.$companyId,
       shiftId,
-      employeeId: shift.employeeId,
+      employeeId,
       schemeId: scheme.id,
       businessDate: shift.businessDate,
       basePay: result.basePay,
@@ -135,7 +170,9 @@ export async function computeShiftCompensation(
   // Record the shortage so it is visible in the employee's deduction history too.
   const shortage = result.lines.find((l) => l.ruleType === "CASH_SHORTAGE");
   if (shortage && dec(shortage.amount).greaterThan(0)) {
-    const existing = await db.deduction.findFirst({ where: { shiftId, type: "CASH_SHORTAGE" } });
+    const existing = await db.deduction.findFirst({
+      where: { shiftId, employeeId, type: "CASH_SHORTAGE" },
+    });
     if (existing) {
       await db.deduction.update({
         where: { id: existing.id },
@@ -145,7 +182,7 @@ export async function computeShiftCompensation(
       await db.deduction.create({
         data: {
           companyId: db.$companyId,
-          employeeId: shift.employeeId,
+          employeeId,
           shiftId,
           type: "CASH_SHORTAGE",
           amount: shortage.amount,

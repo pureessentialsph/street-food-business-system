@@ -107,6 +107,7 @@ model Company {
   employeeDocuments   EmployeeDocument[]
   cashCounts          CashCount[]
   shiftAdjustments    ShiftAdjustment[]
+  cartShiftVendors    CartShiftVendor[]
 }
 
 model Branch {
@@ -428,6 +429,7 @@ model Employee {
   logins             User[]
   documents          EmployeeDocument[]
   shifts             CartShift[]         @relation("ShiftVendor")
+  cartShiftVendors   CartShiftVendor[]
 
   @@unique([companyId, employeeNo])
   @@index([companyId, isActive])
@@ -1165,6 +1167,10 @@ model CartShift {
   approvedById String?
 
   /// No pay deduction without the vendor acknowledging the count (spec §7).
+  /// Set when the day was recorded after the fact, with who did it and when. A shift
+  /// entered three days later is not the same evidence as one closed on the night.
+  backdatedAt        DateTime?
+  backdatedById      String?
   vendorAcknowledged Boolean         @default(false)
   acknowledgedAt     DateTime?
   acknowledgedVia    AcknowledgedVia @default(NONE)
@@ -1193,19 +1199,44 @@ model CartShift {
   updatedAt   DateTime @updatedAt
   createdById String?
 
-  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   /// Restrict, not Cascade: a shift is the financial record of a day's trading, so the
   /// cart, vendor or branch it belongs to cannot be deleted out from under it.
-  cart     Cart          @relation(fields: [cartId], references: [id], onDelete: Restrict)
-  employee Employee      @relation("ShiftVendor", fields: [employeeId], references: [id], onDelete: Restrict)
-  branch   Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  issues   ShiftIssue[]
-  lines    ShiftLine[]
-  supplies ShiftSupply[]
+  cart             Cart              @relation(fields: [cartId], references: [id], onDelete: Restrict)
+  employee         Employee          @relation("ShiftVendor", fields: [employeeId], references: [id], onDelete: Restrict)
+  branch           Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  issues           ShiftIssue[]
+  lines            ShiftLine[]
+  supplies         ShiftSupply[]
+  cartShiftVendors CartShiftVendor[]
 
   @@unique([cartId, businessDate])
   @@index([companyId, businessDate, status])
   @@index([companyId, employeeId, businessDate])
+}
+
+/**
+ * Who worked a cart on a given day. Two people often share one cart — one frying, one
+ * taking money — and both are owed their day.
+ * CartShift.employeeId stays as the PRIMARY vendor: the one answerable for the cash,
+ * and the name every scorecard and report already hangs off. This table adds the rest
+ * without disturbing any of that.
+ */
+model CartShiftVendor {
+  id         String   @id @default(cuid())
+  companyId  String
+  shiftId    String
+  employeeId String
+  /// Exactly one per shift, mirrored on CartShift.employeeId.
+  isPrimary  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  shift    CartShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  employee Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([shiftId, employeeId])
+  @@index([companyId, employeeId])
 }
 
 model ShiftIssue {
@@ -1365,7 +1396,7 @@ model CompensationRule {
 model ShiftCompensation {
   id             String    @id @default(cuid())
   companyId      String
-  shiftId        String    @unique
+  shiftId        String
   employeeId     String
   schemeId       String?
   businessDate   DateTime  @db.Date
@@ -1382,6 +1413,7 @@ model ShiftCompensation {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  @@unique([shiftId, employeeId])
   @@index([companyId, employeeId, businessDate])
   @@index([companyId, status])
 }

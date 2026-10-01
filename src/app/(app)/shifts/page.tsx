@@ -162,6 +162,8 @@ export default async function ShiftsPage({
                           cartCode={cart.code}
                           hasDefaultVendor={Boolean(cart.defaultVendorId)}
                           vendors={employees.map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}` }))}
+                          canBackdate={can(user, "company.manage")}
+                          today={businessDate}
                         />
                       ) : null}
                     </>

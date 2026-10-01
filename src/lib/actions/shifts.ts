@@ -6,7 +6,7 @@ import { dec } from "@/lib/money";
 import { costAsOf } from "@/lib/costing-service";
 import { postLedger, postLedgerWithin, type LedgerEntry } from "@/lib/inventory-service";
 import { reconcileShift, validateClosing, type ReconciliationLineInput } from "@/lib/engines/reconciliation";
-import { assertCanApproveShift, assertScope } from "@/lib/rbac";
+import { assertCanApproveShift, assertScope, can } from "@/lib/rbac";
 import { computeShiftCompensation } from "@/lib/payroll-service";
 import { audit, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
@@ -29,11 +29,38 @@ async function companySettings(db: { company: { findFirst: (a: never) => Promise
 }
 
 /** Open today's shift for one cart, defaulting to the cart's usual vendor. */
-export async function openShift(cartId: string, employeeId: string | null): Promise<ActionResult> {
+export async function openShift(
+  cartId: string,
+  employeeId: string | null,
+  options?: { extraVendorIds?: string[]; forDate?: string },
+): Promise<ActionResult> {
   try {
     const ctx = await withPermission("shift.open");
     const settings = await companySettings(ctx.db as never, ctx.user.companyId);
-    const businessDate = toDateColumn(businessDateFor(new Date(), settings.cutoffHour, settings.timezone));
+    const today = toDateColumn(businessDateFor(new Date(), settings.cutoffHour, settings.timezone));
+
+    /**
+     * Recording a day that has already passed. Owners only, because a shift entered
+     * after the fact is weaker evidence than one closed on the night — and because
+     * backdating is how a cash shortage gets quietly reshaped. Every such shift is
+     * stamped with who did it and when, and the screens say so.
+     */
+    let businessDate = today;
+    if (options?.forDate) {
+      if (!can(ctx.user, "company.manage")) {
+        return { ok: false, error: "Only an owner can record a day that has already passed." };
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(options.forDate)) {
+        return { ok: false, error: "That is not a valid date." };
+      }
+      const chosen = toDateColumn(options.forDate);
+      if (Number.isNaN(chosen.getTime())) return { ok: false, error: "That is not a valid date." };
+      if (chosen.getTime() > today.getTime()) {
+        return { ok: false, error: "A shift cannot be opened for a day that has not happened." };
+      }
+      businessDate = chosen;
+    }
+    const isBackdated = businessDate.getTime() !== today.getTime();
 
     const cart = await ctx.db.cart.findUnique({ where: { id: cartId } });
     if (!cart) return { ok: false, error: "That cart no longer exists." };
@@ -41,27 +68,51 @@ export async function openShift(cartId: string, employeeId: string | null): Prom
 
     const vendorId = employeeId ?? cart.defaultVendorId;
     if (!vendorId) {
-      return { ok: false, error: `${cart.code} has no vendor for today. Pick one, or set a usual vendor on the cart.` };
+      return { ok: false, error: `${cart.code} has no vendor. Pick one, or set a usual vendor on the cart.` };
     }
+
+    /** The primary first, then anyone else who worked the cart, with no duplicates. */
+    const vendorIds = [vendorId, ...(options?.extraVendorIds ?? [])]
+      .filter((id, index, all) => id && all.indexOf(id) === index);
 
     const existing = await ctx.db.cartShift.findFirst({ where: { cartId, businessDate } });
     if (existing) return { ok: true, id: existing.id, message: `${cart.code} is already open.` };
 
-    const shift = await ctx.db.cartShift.create({
-      data: {
-        companyId: ctx.db.$companyId,
-        cartId,
-        employeeId: vendorId,
-        branchId: cart.branchId,
-        businessDate,
-        status: "OPEN",
-        openedById: ctx.user.id,
-        createdById: ctx.user.id,
-      },
+    const shift = await ctx.db.$transaction(async (tx) => {
+      const created = await tx.cartShift.create({
+        data: {
+          companyId: ctx.db.$companyId,
+          cartId,
+          employeeId: vendorId,
+          branchId: cart.branchId,
+          businessDate,
+          status: "OPEN",
+          openedById: ctx.user.id,
+          createdById: ctx.user.id,
+          backdatedAt: isBackdated ? new Date() : null,
+          backdatedById: isBackdated ? ctx.user.id : null,
+        },
+      });
+      await tx.cartShiftVendor.createMany({
+        data: vendorIds.map((id, index) => ({
+          companyId: ctx.db.$companyId,
+          shiftId: created.id,
+          employeeId: id,
+          isPrimary: index === 0,
+        })),
+      });
+      return created;
     });
+
     await audit(ctx, "CREATE", "CartShift", shift.id, null, shift);
     refresh("/shifts");
-    return { ok: true, id: shift.id, message: `${cart.code} opened.` };
+    return {
+      ok: true,
+      id: shift.id,
+      message:
+        `${cart.code} opened${isBackdated ? ` for ${options!.forDate}` : ""}` +
+        (vendorIds.length > 1 ? ` with ${vendorIds.length} vendors.` : "."),
+    };
   } catch (error) {
     return toActionError(error);
   }
