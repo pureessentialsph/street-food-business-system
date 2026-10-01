@@ -5,6 +5,7 @@ import { can, seesAllBranches } from "@/lib/rbac";
 import { businessDateFor, formatBusinessDate, toDateColumn } from "@/lib/businessDate";
 import { dec, formatPHP, sum } from "@/lib/money";
 import { OpenShiftButton } from "./open-shift-button";
+import { BusinessDatePicker } from "@/components/business-date-picker";
 import { PageHeader } from "@/components/data-table";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/field";
@@ -25,6 +26,12 @@ export default async function ShiftsPage({
 
   const company = await db.company.findFirst({ where: { id: user.companyId } });
   const businessDate = params.date ?? businessDateFor(
+    new Date(),
+    company?.businessDayCutoffHour ?? 4,
+    company?.timezone ?? "Asia/Manila",
+  );
+  /** Today, so the picker cannot wander into days that have not happened. */
+  const todayDate = businessDateFor(
     new Date(),
     company?.businessDayCutoffHour ?? 4,
     company?.timezone ?? "Asia/Manila",
@@ -69,14 +76,17 @@ export default async function ShiftsPage({
         title="Daily Close"
         subtitle={`${formatBusinessDate(businessDate)} · issue in the morning, count back at night`}
         action={
-          canOpen ? (
-            <Link
-              href={`/shifts/issue?date=${businessDate}`}
-              className="inline-flex h-11 items-center rounded-md bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700"
-            >
-              Batch issue
-            </Link>
-          ) : null
+          <div className="flex flex-wrap items-center gap-2">
+            <BusinessDatePicker value={businessDate} max={todayDate} />
+            {canOpen ? (
+              <Link
+                href={`/shifts/issue?date=${businessDate}`}
+                className="inline-flex h-11 items-center rounded-md bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700"
+              >
+                Batch issue
+              </Link>
+            ) : null}
+          </div>
         }
       />
 

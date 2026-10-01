@@ -308,7 +308,7 @@ export default async function ShiftPage({
         </Card>
       ) : null}
 
-      {shift.status === "CLOSED" ? (
+      {shift.status === "CLOSED" || shift.status === "DISPUTED" ? (
         <Card>
           <CardHeader><CardTitle>Approval</CardTitle></CardHeader>
           <CardBody className="space-y-2">
@@ -316,6 +316,19 @@ export default async function ShiftPage({
               Closed by {closer?.name ?? "—"}. A shift can never be approved by the person who
               closed it — the same person recorded the counts that set the vendor&apos;s pay.
             </p>
+            {/*
+              A disputed shift is approvable: the shortage is a deduction from the week's
+              pay, not a reason to withhold it. What must not be waved through is a
+              shortage the vendor has never seen, which the action refuses.
+            */}
+            {shift.status === "DISPUTED" ? (
+              <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Cash is out by {formatPHP(shift.cashVariance)}.{" "}
+                {shift.vendorAcknowledged
+                  ? "The vendor has acknowledged the count, so approving this takes the shortage off their pay for the week."
+                  : "The vendor has not acknowledged this count yet. Go through it with them and record the acknowledgment first — nobody is docked for a count they have not seen."}
+              </div>
+            ) : null}
             {canApprove ? (
               <ActionButton
                 action={approveShift.bind(null, shift.id)}
