@@ -12,7 +12,7 @@ import {
   nextReference, onHand, postLedger, postLedgerWithin, rebuildBalances, type LedgerEntry,
 } from "@/lib/inventory-service";
 import { decimalString, optionalNonNegativeDecimal } from "@/lib/validation/masterdata";
-import { assertScope } from "@/lib/rbac";
+import { assertScope, can } from "@/lib/rbac";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 const today = () => toDateColumn(businessDateFor());
@@ -33,6 +33,9 @@ const productionSchema = z.object({
   actualQty: decimalString("Pieces produced", { min: 0, allowZero: false }),
   wasteQty: decimalString("Pieces wasted"),
   notes: z.string().trim().max(500).optional().or(z.literal("").transform(() => undefined)),
+  /// Owners only. A batch cooked last week should be dated last week.
+  forDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "Use the date picker")
+    .optional().or(z.literal("").transform(() => undefined)),
 });
 
 export async function runProductionBatch(formData: FormData): Promise<ActionResult> {
@@ -73,7 +76,23 @@ export async function runProductionBatch(formData: FormData): Promise<ActionResu
     });
 
     const reference = await nextReference(ctx.db, "BATCH");
-    const businessDate = today();
+
+    /**
+     * A batch recorded days later should still sit on the day it was cooked, or the
+     * cost of goods lands in the wrong week. Owners only, same as a backdated shift.
+     */
+    let businessDate = today();
+    if (parsed.data.forDate) {
+      if (!can(ctx.user, "company.manage")) {
+        return { ok: false, error: "Only an owner can record a batch for an earlier day." };
+      }
+      const chosen = toDateColumn(parsed.data.forDate);
+      if (Number.isNaN(chosen.getTime())) return { ok: false, error: "That is not a valid date." };
+      if (chosen.getTime() > businessDate.getTime()) {
+        return { ok: false, error: "A batch cannot be recorded for a day that has not happened." };
+      }
+      businessDate = chosen;
+    }
 
     const batch = await ctx.db.productionBatch.create({
       data: {

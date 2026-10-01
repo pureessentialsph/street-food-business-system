@@ -9,7 +9,7 @@ import { EntityForm } from "@/components/entity-form";
 import { ProductionQuantities } from "@/components/production-quantities";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, Select, TextArea } from "@/components/ui/field";
+import { Field, Select, TextArea, TextInput } from "@/components/ui/field";
 
 /** The commissary turning ingredients into countable pieces. */
 export default async function ProductionPage({
@@ -19,6 +19,7 @@ export default async function ProductionPage({
 }) {
   const params = await searchParams;
   const user = await requireUser();
+  const today = new Date().toISOString().slice(0, 10);
   const db = scopedDb(user.companyId);
   const writable = can(user, "inventory.write");
 
@@ -70,6 +71,15 @@ export default async function ProductionPage({
                     ))}
                   </Select>
                 </Field>
+                {can(user, "company.manage") ? (
+                  <Field
+                    label="Date cooked"
+                    name="forDate"
+                    hint="Leave as today unless you are writing up a batch from an earlier day."
+                  >
+                    <TextInput id="forDate" name="forDate" type="date" max={today} defaultValue={today} />
+                  </Field>
+                ) : null}
                 <ProductionQuantities
                   products={products.map((p) => ({
                     id: p.id,
