@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
+import { payWeekFor } from "@/lib/engines/pay-week";
 import { scopedDb } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { createPayrollRun, recordDeduction } from "@/lib/actions/payroll";
@@ -41,8 +42,9 @@ export default async function PayrollPage({
   const unpaidTotal = sum(pending.map((p) => p.netPay));
 
   const today = new Date();
-  const weekAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
   const iso = (d: Date) => d.toISOString().slice(0, 10);
+  /** Wages are settled every Saturday for the week just worked — see pay-week.ts. */
+  const week = payWeekFor(today);
 
   const tone = (status: string) =>
     status === "PAID" ? "success" : status === "APPROVED" ? "success"
@@ -84,10 +86,10 @@ export default async function PayrollPage({
           <CardBody>
             <EntityForm action={createPayrollRun} returnTo="/payroll" submitLabel="Build run">
               <Field label="Period start" name="periodStart" required>
-                <TextInput id="periodStart" name="periodStart" type="date" defaultValue={iso(weekAgo)} required />
+                <TextInput id="periodStart" name="periodStart" type="date" defaultValue={week.start} required />
               </Field>
-              <Field label="Period end" name="periodEnd" required>
-                <TextInput id="periodEnd" name="periodEnd" type="date" defaultValue={iso(today)} required />
+              <Field label="Period end" name="periodEnd" required hint="Wages are settled on the Saturday for the week just worked.">
+                <TextInput id="periodEnd" name="periodEnd" type="date" defaultValue={week.end} required />
               </Field>
               <Field label="Branch" name="branchId" hint="Leave blank to include every branch.">
                 <Select id="branchId" name="branchId" defaultValue="">

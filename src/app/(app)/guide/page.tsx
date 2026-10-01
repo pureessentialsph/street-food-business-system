@@ -318,8 +318,9 @@ export default async function GuidePage() {
               <Step n={6} title="Night — close the shift">
                 <p>
                   If cash is off by more than your threshold the shift is flagged{" "}
-                  <strong>disputed</strong>, and payroll is blocked until it is settled. That is
-                  the point of the flag.
+                  <strong>disputed</strong>. Settle it with the vendor and approve it; the
+                  shortage then comes off that week&rsquo;s pay. The flag exists so a short day is
+                  noticed, not so wages stop.
                 </p>
               </Step>
               <Step n={7} title="Next day — approve">
@@ -498,10 +499,17 @@ export default async function GuidePage() {
                 <p>Whoever created the run cannot approve it.</p>
               </Step>
             </Steps>
+            <Note>
+              Wages run <strong>Sunday to Saturday</strong> and are settled on the Saturday for
+              the week just worked, so the dates fill themselves in. The Saturday itself is
+              included — pay comes after that day&rsquo;s shift has ended.
+            </Note>
             <Warn>
-              A disputed shift blocks payroll until it is resolved, and a cash shortage is only
-              deducted after the vendor has acknowledged it. Both are deliberate: pay disputes are
-              easier to prevent than to settle.
+              A cash shortage is deducted from that week&rsquo;s pay, and only after the vendor
+              has acknowledged the count. That acknowledgment is the part that matters: nobody is
+              docked for a count they have not seen. A disputed shift does not hold up anyone
+              else&rsquo;s wages — check it with the vendor, approve it, and the shortage comes
+              off their week.
             </Warn>
           </GuideSection>
 

@@ -578,12 +578,17 @@ export async function approveShift(shiftId: string): Promise<ActionResult> {
 
     if (shift.status === "APPROVED") return { ok: true, message: "Already approved." };
     if (shift.status === "OPEN") return { ok: false, error: "Close the shift before approving it." };
-    if (shift.status === "DISPUTED") {
-      return { ok: false, error: "This shift is disputed. Resolve the cash variance before approving." };
-    }
 
     assertCanApproveShift(ctx.user, { closedById: shift.closedById, status: shift.status });
 
+    /**
+     * A disputed shift can be approved. A cash shortage is not a reason to withhold a
+     * week's wages — it is a deduction from them, taken on the week's pay, which is how
+     * this business settles one. Refusing to approve only stopped everyone being paid.
+     *
+     * The acknowledgment is the protection that matters and it still stands: nobody is
+     * docked for a count they have not seen.
+     */
     if (!shift.vendorAcknowledged && shift.cashVariance.isNegative()) {
       return {
         ok: false,

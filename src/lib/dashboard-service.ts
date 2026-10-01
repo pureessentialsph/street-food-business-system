@@ -217,7 +217,9 @@ export async function buildDashboard(
     alerts.push({
       tone: "danger",
       title: `${disputed.length} disputed shift${disputed.length === 1 ? "" : "s"}`,
-      detail: "Cash is out by more than the threshold. Payroll is blocked until it is resolved.",
+      detail:
+        "Cash is out by more than the threshold. Check the count with the vendor, then approve " +
+        "it — the shortage comes off that week's pay.",
       href: "/shifts",
     });
   }

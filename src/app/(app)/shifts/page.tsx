@@ -104,7 +104,8 @@ export default async function ShiftsPage({
           <span className="font-medium">
             {disputed.length} shift{disputed.length === 1 ? "" : "s"} disputed.
           </span>{" "}
-          Cash is out by more than the threshold, so payroll is blocked until it is resolved.
+          Cash is out by more than the threshold. Check the count with the vendor, then approve it
+          — the shortage comes off that week&rsquo;s pay.
         </div>
       ) : null}
 
