@@ -129,6 +129,8 @@ export function assertScope(user: SessionUser, branchId: string): void {
  * just stops the day being signed off. It is off by default and should go back off as
  * soon as there is someone else to approve. Self-approval leaves closedById and
  * approvedById equal on the shift, so it is visible wherever the shift is read.
+ *
+ * The same setting lifts the matching rule on expenses — see assertCanApproveExpense.
  */
 export function assertCanApproveShift(
   user: SessionUser,
@@ -140,6 +142,32 @@ export function assertCanApproveShift(
     throw new ForbiddenError(
       "A shift cannot be approved by the user who closed it. Ask an area manager, owner, or admin — " +
       "or, if you are the only one who can approve, turn on self-approval in Settings.",
+    );
+  }
+}
+
+/**
+ * The same rule on an expense: whoever recorded it should not be the one waving it
+ * through, since recording it is what puts it in the P&L.
+ *
+ * It shares `Company.allowSelfApproval` with the shift rule rather than having a switch
+ * of its own. The reason either is ever turned on is the same one — there is nobody
+ * else — and asking an owner to say twice that they work alone would be noise. A
+ * self-approved expense records the same person as recorder and approver.
+ *
+ * Approving a payroll run deliberately has no such escape: it is the point where money
+ * leaves, and it is the one approval worth stopping for.
+ */
+export function assertCanApproveExpense(
+  user: SessionUser,
+  expense: { createdById: string | null },
+  options?: { allowSelfApproval?: boolean },
+): void {
+  assertPermission(user, "expense.approve");
+  if (expense.createdById && expense.createdById === user.id && !options?.allowSelfApproval) {
+    throw new ForbiddenError(
+      "You recorded this expense, so someone else has to approve it. If you are the only one " +
+      "who can approve, turn on self-approval in Settings.",
     );
   }
 }

@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { dec } from "@/lib/money";
 import { decimalString } from "@/lib/validation/masterdata";
-import { assertScope } from "@/lib/rbac";
+import { assertCanApproveExpense, assertScope } from "@/lib/rbac";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 const toDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -116,12 +116,15 @@ export async function setExpenseStatus(
     const before = await ctx.db.expense.findUnique({ where: { id } });
     if (!before) return { ok: false, error: "That expense no longer exists." };
 
-    // Whoever recorded it should not be the one waving it through.
-    if (status === "APPROVED" && before.createdById === ctx.user.id) {
-      return {
-        ok: false,
-        error: "You recorded this expense, so someone else has to approve it.",
-      };
+    /**
+     * Whoever recorded it should not be the one waving it through — unless the company
+     * has said it has nobody else, which is the same setting that governs shifts.
+     */
+    if (status === "APPROVED") {
+      const company = await ctx.db.company.findFirst({ where: { id: ctx.user.companyId } });
+      assertCanApproveExpense(ctx.user, before, {
+        allowSelfApproval: company?.allowSelfApproval ?? false,
+      });
     }
 
     const after = await ctx.db.expense.update({

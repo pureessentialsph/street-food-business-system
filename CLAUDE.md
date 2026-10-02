@@ -35,11 +35,13 @@ performance fix — leave the guide alone and say so in the commit.
   schemes and thresholds are all editable by the owner.
 - **Segregation of duties.** The person who closes a shift cannot approve it; the person
   who records an expense cannot approve it; the person who creates a payroll run cannot
-  approve it. The shift rule has one deliberate escape — `Company.allowSelfApproval`,
+  approve it. The first two have one deliberate escape — `Company.allowSelfApproval`,
   off by default — because a one-person operation has no second approver and a control
   nobody can satisfy just stops the day being signed off. It is a setting, not a
-  special-cased user, and a self-approved shift records the same person as closer and
-  approver. Do not add escapes to the other two without the same explicitness.
+  special-cased user; one setting covers both, since the reason for turning either on is
+  the same; and a self-approved shift or expense records the same person on both sides.
+  The payroll-run rule has no escape: that approval is where money leaves. Do not add
+  one without the same explicitness — a setting, a comment saying why, and a test.
 - Validate every input boundary with Zod. Every server action returns `ActionResult` and
   never throws at the form.
 

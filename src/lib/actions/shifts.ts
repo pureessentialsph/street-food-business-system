@@ -7,6 +7,7 @@ import type { ScopedDb } from "@/lib/db";
 import { costAsOf } from "@/lib/costing-service";
 import { postLedger, postLedgerWithin, type LedgerEntry } from "@/lib/inventory-service";
 import { reconcileShift, validateClosing, type ReconciliationLineInput } from "@/lib/engines/reconciliation";
+import { describeRoster, planRoster } from "@/lib/engines/vendor-roster";
 import { assertCanApproveShift, assertScope, can } from "@/lib/rbac";
 import { computeShiftCompensation } from "@/lib/payroll-service";
 import { audit, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
@@ -147,6 +148,151 @@ export async function openShift(
       message:
         `${cart.code} opened${isBackdated ? ` for ${options!.forDate}` : ""}` +
         (vendorIds.length > 1 ? ` with ${vendorIds.length} vendors.` : "."),
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+/**
+ * Correct who worked the cart that day.
+ *
+ * The usual vendor is filled in by one click, so the wrong name is an easy mistake to
+ * make and — until now — an impossible one to fix: the roster was written at open and
+ * never again. It is not cosmetic. Every name on the roster earns a day's pay, so a
+ * name left on it pays somebody who was never there, and a name missing from it leaves
+ * someone who worked unpaid.
+ *
+ * Allowed while the shift is still OPEN, CLOSED or DISPUTED. An APPROVED shift is
+ * immutable — reopen it first — and a vendor whose pay has already been paid out is
+ * never quietly removed; that is a correction on the next payroll run.
+ */
+export async function setShiftVendors(
+  shiftId: string,
+  vendorIds: string[],
+): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("shift.close");
+
+    const shift = await ctx.db.cartShift.findUnique({ where: { id: shiftId } });
+    if (!shift) return { ok: false, error: "That shift no longer exists." };
+    assertScope(ctx.user, shift.branchId);
+
+    if (shift.status === "APPROVED") {
+      return {
+        ok: false,
+        error: "This shift is approved and locked. Reopen it for correction first.",
+      };
+    }
+
+    const current = await ctx.db.cartShiftVendor.findMany({ where: { shiftId } });
+    const plan = planRoster(
+      // A shift opened before vendors were a list has its one on the shift itself.
+      current.length > 0
+        ? current.map((v) => ({ employeeId: v.employeeId, isPrimary: v.isPrimary }))
+        : [{ employeeId: shift.employeeId, isPrimary: true }],
+      vendorIds,
+    );
+    if (plan.kind === "refused") return { ok: false, error: plan.reason };
+    if (plan.kind === "unchanged") return { ok: true, id: shiftId, message: "Those are already the vendors." };
+
+    const employees = await ctx.db.employee.findMany({ where: { id: { in: vendorIds } } });
+    const nameOf = (id: string) => {
+      const found = employees.find((e) => e.id === id);
+      return found ? `${found.firstName} ${found.lastName}` : "that employee";
+    };
+    for (const id of vendorIds) {
+      const employee = employees.find((e) => e.id === id);
+      if (!employee) return { ok: false, error: "One of those employees no longer exists." };
+      /**
+       * Pay comes from the compensation scheme, not the employee's rate field, and a
+       * vendor without one earns nothing at all. Silently writing no payslip is the
+       * worst outcome here, so this refuses and names the fix.
+       */
+      if (!employee.compensationSchemeId) {
+        return {
+          ok: false,
+          error:
+            `${employee.firstName} ${employee.lastName} has no pay scheme, so working a shift ` +
+            `would earn nothing. Set one on their record under Employees first.`,
+        };
+      }
+    }
+
+    /** Never take a payslip away from someone who has already been paid it. */
+    const paid = await ctx.db.shiftCompensation.findFirst({
+      where: {
+        shiftId,
+        employeeId: { in: plan.remove },
+        OR: [{ status: { not: "DRAFT" } }, { payrollItemId: { not: null } }],
+      },
+    });
+    if (paid) {
+      return {
+        ok: false,
+        error:
+          "One of the vendors being removed has pay for this shift that is already in a payroll " +
+          "run. Correct it there instead of rewriting who worked the day.",
+      };
+    }
+
+    const before = {
+      vendors: current.map((v) => ({ employeeId: v.employeeId, isPrimary: v.isPrimary })),
+      employeeId: shift.employeeId,
+    };
+
+    await ctx.db.$transaction(async (tx) => {
+      if (plan.remove.length > 0) {
+        await tx.cartShiftVendor.deleteMany({ where: { shiftId, employeeId: { in: plan.remove } } });
+        // Their draft pay for this day goes with them, shortage deduction and all.
+        await tx.shiftCompensation.deleteMany({
+          where: { shiftId, employeeId: { in: plan.remove }, status: "DRAFT", payrollItemId: null },
+        });
+        await tx.deduction.deleteMany({
+          where: { shiftId, employeeId: { in: plan.remove }, type: "CASH_SHORTAGE" },
+        });
+      }
+      for (const id of plan.add) {
+        await tx.cartShiftVendor.create({
+          data: { companyId: ctx.db.$companyId, shiftId, employeeId: id, isPrimary: false },
+        });
+      }
+      // isPrimary is set in one pass at the end, so it is never true for two rows.
+      await tx.cartShiftVendor.updateMany({
+        where: { shiftId },
+        data: { isPrimary: false },
+      });
+      await tx.cartShiftVendor.updateMany({
+        where: { shiftId, employeeId: plan.primaryId },
+        data: { isPrimary: true },
+      });
+      await tx.cartShift.update({ where: { id: shiftId }, data: { employeeId: plan.primaryId } });
+    });
+
+    /**
+     * Pay is recomputed for everyone now on the roster. Rates differ between people, so
+     * this is not a relabelling — the day's wage bill changes.
+     */
+    let recomputed = false;
+    if (shift.status !== "OPEN") {
+      await computeShiftCompensation(ctx.db, shiftId);
+      recomputed = true;
+    }
+
+    const after = await ctx.db.cartShiftVendor.findMany({ where: { shiftId } });
+    await audit(ctx, "UPDATE", "CartShiftVendor", shiftId, before, {
+      vendors: after.map((v) => ({ employeeId: v.employeeId, isPrimary: v.isPrimary })),
+      employeeId: plan.primaryId,
+      change: describeRoster(plan, nameOf),
+    });
+    refresh("/shifts", `/shifts/${shiftId}`, "/payroll", "/reports");
+
+    return {
+      ok: true,
+      id: shiftId,
+      message:
+        `Vendors updated — ${describeRoster(plan, nameOf)}.` +
+        (recomputed ? " Pay for the day has been recalculated." : ""),
     };
   } catch (error) {
     return toActionError(error);

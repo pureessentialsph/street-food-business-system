@@ -12,6 +12,7 @@ import { ClosingGrid } from "./closing-grid";
 import { EmptyShiftActions } from "./empty-shift-actions";
 import { ReopenForm } from "./reopen-form";
 import { SuppliesForm } from "./supplies-form";
+import { VendorRosterForm } from "./vendor-roster-form";
 import { IssueForm } from "./issue-form";
 import { ActionButton } from "@/components/action-button";
 import { PageHeader } from "@/components/data-table";
@@ -37,7 +38,7 @@ export default async function ShiftPage({
   });
   if (!shift) notFound();
 
-  const [cart, vendor, products, closer, supplyItems, branchStock] = await Promise.all([
+  const [cart, vendor, products, closer, supplyItems, branchStock, roster, employees] = await Promise.all([
     db.cart.findUnique({ where: { id: shift.cartId }, include: { branch: true, location: true } }),
     db.employee.findUnique({ where: { id: shift.employeeId } }),
     db.product.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
@@ -50,7 +51,13 @@ export default async function ShiftPage({
     db.stockBalance.findMany({
       where: { itemType: "INGREDIENT", locationType: "BRANCH", locationId: shift.branchId },
     }),
+    db.cartShiftVendor.findMany({ where: { shiftId }, orderBy: { isPrimary: "desc" } }),
+    db.employee.findMany({ where: { isActive: true }, orderBy: [{ lastName: "asc" }, { firstName: "asc" }] }),
   ]);
+
+  /** A shift opened before vendors were a list still has its one on the shift itself. */
+  const rosterIds = roster.length > 0 ? roster.map((v) => v.employeeId) : [shift.employeeId];
+  const employeeName = new Map(employees.map((e) => [e.id, `${e.firstName} ${e.lastName}`]));
 
   const branchOnHand = new Map(branchStock.map((b) => [b.itemId, b.qty.toString()]));
 
@@ -107,6 +114,18 @@ export default async function ShiftPage({
           <Badge tone="warning">not acknowledged</Badge>
         ) : null}
       </div>
+
+      <VendorRosterForm
+        shiftId={shift.id}
+        roster={rosterIds.map((id) => ({ id, name: employeeName.get(id) ?? "unknown" }))}
+        employees={employees.map((e) => ({
+          id: e.id,
+          name: `${e.firstName} ${e.lastName}`,
+          hasScheme: Boolean(e.compensationSchemeId),
+        }))}
+        canEdit={can(user, "shift.close")}
+        locked={shift.status === "APPROVED"}
+      />
 
       {isClosed ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -317,8 +336,9 @@ export default async function ShiftPage({
           <CardHeader><CardTitle>Approval</CardTitle></CardHeader>
           <CardBody className="space-y-2">
             <p className="text-sm text-stone-600">
-              Closed by {closer?.name ?? "—"}. A shift can never be approved by the person who
-              closed it — the same person recorded the counts that set the vendor&apos;s pay.
+              Closed by {closer?.name ?? "—"}. Normally a shift is not approved by the person
+              who closed it — the same person recorded the counts that set the vendor&apos;s pay
+              — unless self-approval is turned on in Settings.
             </p>
             {/*
               A disputed shift is approvable: the shortage is a deduction from the week's

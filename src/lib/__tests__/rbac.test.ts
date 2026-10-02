@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertCanApproveExpense,
   assertCanApproveShift,
   assertScope,
   can,
@@ -129,5 +130,43 @@ describe("approving a shift you closed yourself", () => {
     const other = { closedById: "another-user", status: "CLOSED" };
     expect(() => assertCanApproveShift(approver, other)).not.toThrow();
     expect(() => assertCanApproveShift(approver, other, { allowSelfApproval: true })).not.toThrow();
+  });
+});
+
+/**
+ * The same rule on expenses, lifted by the same setting. Payroll-run approval has no
+ * escape at all, and the absence is deliberate — see CLAUDE.md.
+ */
+describe("approving an expense you recorded yourself", () => {
+  const approver = user({ role: "OWNER", scopeBranchIds: [] });
+  const expense = { createdById: approver.id };
+
+  it("is refused by default", () => {
+    expect(() => assertCanApproveExpense(approver, expense)).toThrow(/someone else has to approve it/);
+  });
+
+  it("is still refused when the option is explicitly off", () => {
+    expect(() => assertCanApproveExpense(approver, expense, { allowSelfApproval: false })).toThrow();
+  });
+
+  it("is allowed when the company has turned it on", () => {
+    expect(() => assertCanApproveExpense(approver, expense, { allowSelfApproval: true })).not.toThrow();
+  });
+
+  it("still refuses a role that cannot approve expenses at all", () => {
+    const supervisor = user({ role: "SUPERVISOR" });
+    expect(() =>
+      assertCanApproveExpense(supervisor, { createdById: "someone-else" }, { allowSelfApproval: true }),
+    ).toThrow();
+  });
+
+  it("leaves an expense recorded by someone else approvable either way", () => {
+    const other = { createdById: "another-user" };
+    expect(() => assertCanApproveExpense(approver, other)).not.toThrow();
+    expect(() => assertCanApproveExpense(approver, other, { allowSelfApproval: true })).not.toThrow();
+  });
+
+  it("tells the approver where the setting is, so the refusal is not a dead end", () => {
+    expect(() => assertCanApproveExpense(approver, expense)).toThrow(/Settings/);
   });
 });

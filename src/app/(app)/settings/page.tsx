@@ -121,15 +121,16 @@ export default async function SettingsPage({
                 </Field>
                 <div className="sm:col-span-2">
                   <Checkbox
-                    label="Let the person who closed a shift also approve it"
+                    label="Let me approve shifts and expenses I recorded myself"
                     name="allowSelfApproval"
                     defaultChecked={company.allowSelfApproval}
                   />
                   <p className="mt-1 text-xs text-stone-500">
-                    Normally a second person signs off a shift, because the one who closed it
-                    recorded the counts that set the vendor&rsquo;s pay. Turn this on only while
-                    you are the only person who can approve, and turn it off again once someone
-                    else can — a self-approved shift shows who did it.
+                    Normally a second person signs off a shift or an expense, because the one who
+                    recorded it set the figures. Turn this on only while you are the only person
+                    who can approve, and turn it off again once someone else can — a self-approved
+                    shift or expense shows who did it. Approving a payroll run always needs a
+                    second person: that is where money actually leaves.
                   </p>
                 </div>
                 <p className="text-xs text-stone-500">
@@ -158,7 +159,7 @@ export default async function SettingsPage({
                   </span>
                 </p>
                 <p>
-                  Self-approval:{" "}
+                  Self-approval of shifts and expenses:{" "}
                   <span className="font-medium text-stone-900">
                     {company?.allowSelfApproval ? "allowed" : "a second person must approve"}
                   </span>

@@ -281,6 +281,16 @@ export default async function GuidePage() {
                   Pick the cart, confirm the vendor. Opening a shift does not move stock; it just
                   says this cart is trading today.
                 </p>
+                <p>
+                  If two people worked the cart, use <em>other vendor, or a past day</em> and add a
+                  second name. Both earn their daily rate and both earn the set incentive if the
+                  day meets it; the first name is the one answerable for the cash.
+                </p>
+                <p>
+                  Picked the wrong name, or forgot the second one? Open the shift and use{" "}
+                  <em>change</em> beside <strong>Worked by</strong>. It can be corrected until the
+                  shift is approved, and the day&rsquo;s pay is recalculated when you save.
+                </p>
               </Step>
               <Step n={2} title="Morning — issue the load-out">
                 <p>
@@ -323,7 +333,7 @@ export default async function GuidePage() {
                   noticed, not so wages stop.
                 </p>
               </Step>
-<Step n={7} title="Next day — approve">
+              <Step n={7} title="Next day — approve">
                 <p>
                   A different person approves: the one who closed it recorded the counts that set
                   the vendor&rsquo;s pay, so a second pair of eyes is the check. Approval is what
@@ -332,8 +342,10 @@ export default async function GuidePage() {
                 <p>
                   While you are the only person who can approve, turn on self-approval in{" "}
                   <Link href="/settings" className="text-brand-700 hover:underline">Settings</Link>.
-                  Turn it off again once someone else can — a self-approved shift records that
-                  the same person closed and approved it.
+                  That one switch covers shifts <em>and</em> expenses you recorded yourself. Turn
+                  it off again once someone else can — a self-approved shift records that the same
+                  person closed and approved it. Approving a payroll run always needs a second
+                  person, because that is where money actually leaves.
                 </p>
               </Step>
             </Steps>
@@ -478,8 +490,11 @@ export default async function GuidePage() {
               it lands in that unit&rsquo;s profit and loss. Company overhead sits above the carts.
             </p>
             <p className="text-sm text-stone-600">
-              Recurring costs can be set up once and repeat. Whoever records an expense cannot
-              approve it.
+              Recurring costs can be set up once and repeat. Whoever records an expense normally
+              cannot approve it — unless self-approval is on in{" "}
+              <Link href="/settings" className="text-brand-700 hover:underline">Settings</Link>,
+              the same switch that covers shifts. A self-approved expense records the same person
+              as recorder and approver.
             </p>
             <Note>
               Wastage is an operating expense, not cost of goods. It is reported on its own line so
