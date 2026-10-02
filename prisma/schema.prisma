@@ -46,6 +46,14 @@ model Company {
   businessDayCutoffHour Int      @default(4)
   defaultWastagePct     Decimal  @default(0) @db.Decimal(14, 4)
   cashVarianceThreshold Decimal  @default(100) @db.Decimal(14, 4)
+  /// Whether the person who closed a shift may also approve it.
+  ///
+  /// Off by default, and it should stay off once there are two people who can approve:
+  /// the closer records the counts that set a vendor's pay, so a second pair of eyes
+  /// is the control. A one-person operation has no second pair of eyes, and a control
+  /// nobody can satisfy just stops the day being signed off. Self-approval is recorded
+  /// on the shift — closedById and approvedById match — so it stays visible.
+  allowSelfApproval     Boolean  @default(false)
   settings              Json     @default("{}")
   isActive              Boolean  @default(true)
   createdAt             DateTime @default(now())

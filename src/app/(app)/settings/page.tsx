@@ -119,6 +119,19 @@ export default async function SettingsPage({
                     defaultValue={company.defaultWastagePct.toString()}
                   />
                 </Field>
+                <div className="sm:col-span-2">
+                  <Checkbox
+                    label="Let the person who closed a shift also approve it"
+                    name="allowSelfApproval"
+                    defaultChecked={company.allowSelfApproval}
+                  />
+                  <p className="mt-1 text-xs text-stone-500">
+                    Normally a second person signs off a shift, because the one who closed it
+                    recorded the counts that set the vendor&rsquo;s pay. Turn this on only while
+                    you are the only person who can approve, and turn it off again once someone
+                    else can — a self-approved shift shows who did it.
+                  </p>
+                </div>
                 <p className="text-xs text-stone-500">
                   Code ({company.code}) and currency ({company.currency}) are fixed. The code is
                   what someone types at sign-in to tell two operators apart, and every peso already
@@ -142,6 +155,12 @@ export default async function SettingsPage({
                   Cash variance dispute threshold:{" "}
                   <span className="font-medium text-stone-900">
                     {company ? formatPHP(company.cashVarianceThreshold) : "—"}
+                  </span>
+                </p>
+                <p>
+                  Self-approval:{" "}
+                  <span className="font-medium text-stone-900">
+                    {company?.allowSelfApproval ? "allowed" : "a second person must approve"}
                   </span>
                 </p>
                 <p>

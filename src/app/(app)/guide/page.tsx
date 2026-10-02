@@ -323,10 +323,17 @@ export default async function GuidePage() {
                   noticed, not so wages stop.
                 </p>
               </Step>
-              <Step n={7} title="Next day — approve">
+<Step n={7} title="Next day — approve">
                 <p>
-                  A different person approves — the one who closed it cannot. Approval is what
+                  A different person approves: the one who closed it recorded the counts that set
+                  the vendor&rsquo;s pay, so a second pair of eyes is the check. Approval is what
                   makes the day final and payable.
+                </p>
+                <p>
+                  While you are the only person who can approve, turn on self-approval in{" "}
+                  <Link href="/settings" className="text-brand-700 hover:underline">Settings</Link>.
+                  Turn it off again once someone else can — a self-approved shift records that
+                  the same person closed and approved it.
                 </p>
               </Step>
             </Steps>

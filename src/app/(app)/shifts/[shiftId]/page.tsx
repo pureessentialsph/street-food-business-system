@@ -74,7 +74,11 @@ export default async function ShiftPage({
   const supplyUnit = new Map(supplyItems.map((i) => [i.id, i.baseUnit as string]));
 
   const canClose = can(user, "shift.close") && shift.status !== "APPROVED";
-  const canApprove = can(user, "shift.approve") && shift.closedById !== user.id;
+  /** Mirrors assertCanApproveShift, so the button is never offered where the action refuses. */
+  const selfApprovalAllowed = (await db.company.findFirst({ where: { id: user.companyId } }))?.allowSelfApproval ?? false;
+  const canApprove =
+    can(user, "shift.approve") && (shift.closedById !== user.id || selfApprovalAllowed);
+  const isSelfApproving = can(user, "shift.approve") && shift.closedById === user.id;
   const isClosed = shift.status !== "OPEN";
 
   const tone = shift.status === "APPROVED" || shift.status === "CLOSED" ? "success"
@@ -339,10 +343,16 @@ export default async function ShiftPage({
             ) : (
               <p className="rounded-md bg-stone-50 px-3 py-2 text-sm text-stone-600">
                 {can(user, "shift.approve")
-                  ? "You closed this shift, so someone else must approve it."
+                  ? "You closed this shift, so someone else must approve it. If you are the only one who can, turn on self-approval in Settings."
                   : "Waiting on an area manager, owner or admin to approve."}
               </p>
             )}
+            {canApprove && isSelfApproving ? (
+              <p className="text-xs text-stone-500">
+                You closed this shift as well. Self-approval is on, so this is allowed — and it
+                is recorded as approved by the same person who closed it.
+              </p>
+            ) : null}
           </CardBody>
         </Card>
       ) : null}

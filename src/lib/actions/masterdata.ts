@@ -441,6 +441,7 @@ export async function saveCompany(formData: FormData): Promise<ActionResult> {
         businessDayCutoffHour: Number(parsed.data.businessDayCutoffHour),
         cashVarianceThreshold: parsed.data.cashVarianceThreshold,
         defaultWastagePct: parsed.data.defaultWastagePct ?? before.defaultWastagePct,
+        allowSelfApproval: parsed.data.allowSelfApproval,
       },
     });
 

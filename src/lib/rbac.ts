@@ -120,14 +120,26 @@ export function assertScope(user: SessionUser, branchId: string): void {
  * Segregation of duties (spec §7): the supervisor who records the counts that cut a
  * vendor's pay may never approve that same shift.
  */
+/**
+ * Segregation of duties on a shift: the person who closed it records the counts that
+ * set a vendor's pay, so someone else signs it off.
+ *
+ * `allowSelfApproval` lifts that, and exists because a one-person operation has no
+ * second pair of eyes — a control nobody can satisfy does not protect anything, it
+ * just stops the day being signed off. It is off by default and should go back off as
+ * soon as there is someone else to approve. Self-approval leaves closedById and
+ * approvedById equal on the shift, so it is visible wherever the shift is read.
+ */
 export function assertCanApproveShift(
   user: SessionUser,
   shift: { closedById: string | null; status: string },
+  options?: { allowSelfApproval?: boolean },
 ): void {
   assertPermission(user, "shift.approve");
-  if (shift.closedById && shift.closedById === user.id) {
+  if (shift.closedById && shift.closedById === user.id && !options?.allowSelfApproval) {
     throw new ForbiddenError(
-      "A shift cannot be approved by the user who closed it. Ask an area manager, owner, or admin.",
+      "A shift cannot be approved by the user who closed it. Ask an area manager, owner, or admin — " +
+      "or, if you are the only one who can approve, turn on self-approval in Settings.",
     );
   }
 }

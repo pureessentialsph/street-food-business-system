@@ -174,6 +174,7 @@ export const companySchema = z.object({
     .refine((v) => Number(v) >= 0 && Number(v) <= 23, "Hour must be between 0 and 23"),
   cashVarianceThreshold: decimalString("Cash variance threshold"),
   defaultWastagePct: optionalNonNegativeDecimal("Default wastage %"),
+  allowSelfApproval: z.coerce.boolean().default(false),
 });
 
 /**

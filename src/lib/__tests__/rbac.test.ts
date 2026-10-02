@@ -98,3 +98,36 @@ describe("rbac — the checkbox default trap", () => {
     expect(ticked.success && ticked.data.isActive).toBe(true);
   });
 });
+
+/**
+ * Segregation of duties, and the one case that lifts it. A control nobody can satisfy
+ * does not protect anything — but it must be deliberate, not the default.
+ */
+describe("approving a shift you closed yourself", () => {
+  const approver = user({ role: "OWNER", scopeBranchIds: [] });
+  const shift = { closedById: approver.id, status: "CLOSED" };
+
+  it("is refused by default", () => {
+    expect(() => assertCanApproveShift(approver, shift)).toThrow(/cannot be approved by the user who closed it/);
+  });
+
+  it("is still refused when the option is explicitly off", () => {
+    expect(() => assertCanApproveShift(approver, shift, { allowSelfApproval: false })).toThrow();
+  });
+
+  it("is allowed when the company has turned it on", () => {
+    expect(() => assertCanApproveShift(approver, shift, { allowSelfApproval: true })).not.toThrow();
+  });
+
+  it("still refuses someone without the permission, however the option is set", () => {
+    const supervisor = user({ role: "SUPERVISOR" });
+    expect(() => assertCanApproveShift(supervisor, { closedById: "someone-else", status: "CLOSED" },
+      { allowSelfApproval: true })).toThrow();
+  });
+
+  it("leaves a shift closed by someone else approvable either way", () => {
+    const other = { closedById: "another-user", status: "CLOSED" };
+    expect(() => assertCanApproveShift(approver, other)).not.toThrow();
+    expect(() => assertCanApproveShift(approver, other, { allowSelfApproval: true })).not.toThrow();
+  });
+});

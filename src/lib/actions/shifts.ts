@@ -579,7 +579,12 @@ export async function approveShift(shiftId: string): Promise<ActionResult> {
     if (shift.status === "APPROVED") return { ok: true, message: "Already approved." };
     if (shift.status === "OPEN") return { ok: false, error: "Close the shift before approving it." };
 
-    assertCanApproveShift(ctx.user, { closedById: shift.closedById, status: shift.status });
+    const company = await ctx.db.company.findFirst({ where: { id: ctx.db.$companyId } });
+    assertCanApproveShift(
+      ctx.user,
+      { closedById: shift.closedById, status: shift.status },
+      { allowSelfApproval: company?.allowSelfApproval ?? false },
+    );
 
     /**
      * A disputed shift can be approved. A cash shortage is not a reason to withhold a
