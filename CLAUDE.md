@@ -42,6 +42,12 @@ performance fix — leave the guide alone and say so in the commit.
   the same; and a self-approved shift or expense records the same person on both sides.
   The payroll-run rule has no escape: that approval is where money leaves. Do not add
   one without the same explicitness — a setting, a comment saying why, and a test.
+- **The cash book follows the documents.** A movement posted from a shift, expense,
+  payroll run or purchase order is keyed on that document and always equals what it
+  currently says — re-count a shift and the line changes, never doubles. Movements
+  entered by hand are append-only and corrected by reversal. Nothing anywhere asks
+  where money "came from": a payment says how it was paid, and funding the business is
+  its own entry.
 - Validate every input boundary with Zod. Every server action returns `ActionResult` and
   never throws at the form.
 

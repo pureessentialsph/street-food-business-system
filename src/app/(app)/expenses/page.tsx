@@ -253,7 +253,12 @@ export default async function ExpensesPage({
                 <Field label="Amount (₱)" name="amount" required>
                   <NumberInput id="amount" name="amount" required placeholder="0.00" />
                 </Field>
-                <Field label="Paid by" name="paymentMethod" required>
+                <Field
+                  label="Paid by"
+                  name="paymentMethod"
+                  required
+                  hint="Only cash comes out of the cash box. Where that cash came from is the Cash page's business, not this form's."
+                >
                   <Select id="paymentMethod" name="paymentMethod" defaultValue="CASH">
                     <option value="CASH">Cash</option>
                     <option value="GCASH">GCash</option>

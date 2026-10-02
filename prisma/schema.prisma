@@ -63,10 +63,12 @@ model Company {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  branches  Branch[]
-  users     User[]
-  auditLogs AuditLog[]
-  scopes    UserBranchScope[]
+  branches          Branch[]
+  users             User[]
+  auditLogs         AuditLog[]
+  scopes            UserBranchScope[]
+  cashMovements     CashMovement[]
+  cashCountSessions CashCountSession[]
 
   // Phase 1 master data
   areas               Area[]
@@ -1663,21 +1665,28 @@ enum SuggestionStatus {
 }
 
 model PurchaseOrder {
-  poNo                String    @id @default(cuid())
+  poNo                String         @id @default(cuid())
   companyId           String
   reference           String
   supplierId          String
   destinationBranchId String
-  status              PoStatus  @default(SUGGESTED)
+  status              PoStatus       @default(SUGGESTED)
   orderedAt           DateTime?
-  expectedAt          DateTime? @db.Date
+  expectedAt          DateTime?      @db.Date
   receivedAt          DateTime?
-  totalAmount         Decimal   @default(0) @db.Decimal(14, 4)
+  totalAmount         Decimal        @default(0) @db.Decimal(14, 4)
   notes               String?
+  /// How it was settled. Only CASH leaves the cash box; see cash-service.ts.
+  paymentMethod       PaymentMethod?
+  /// Receiving stock and paying for it are separate events — a market run pays on the
+  /// spot, a supplier on terms pays weeks later, and the cash book must follow the
+  /// money rather than the delivery.
+  paidAt              DateTime?
+  paidById            String?
   approvedAt          DateTime?
   approvedById        String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
   createdById         String?
 
   company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1793,6 +1802,101 @@ model CashCount {
 
   @@unique([shiftId, denomination])
   @@index([companyId, shiftId])
+}
+
+/**
+ * The cash book: where the money actually is, as opposed to what was sold.
+ * Sales, expenses and wages each knew their own figures, but nothing added them up, so
+ * "how much cash should be in the box right now?" had no answer and the money an owner
+ * put in to start the business had nowhere to be recorded at all. This is that running
+ * balance, and the place capital infusions live.
+ * Two kinds of row, with one rule each:
+ * Posted from a document — a shift's remittance, a cash expense, a paid payroll run.
+ * One row per document, keyed on refType+refId, always equal to what that document
+ * currently says. Re-counting a shift changes the row rather than adding a second,
+ * because a cash book that disagrees with the shift it came from is worse than no
+ * cash book.
+ * Entered by hand — capital, drawings, a bank run, a counted difference. Never
+ * edited: a mistake is corrected by a reversing row that points at the original, so
+ * the history stays readable years later.
+ * `branchId` is null for the one cash box the business runs out of. It exists so the
+ * day there is a separate float per branch, history does not have to be rewritten.
+ */
+model CashMovement {
+  id           String           @id @default(cuid())
+  companyId    String
+  businessDate DateTime         @db.Date
+  type         CashMovementType
+  /// Always positive. Which way it moves is the type's business — see cash-book.ts.
+  amount       Decimal          @db.Decimal(14, 4)
+  branchId     String?
+  /// The document this came from: "CartShift", "Expense", "PayrollRun", "CashCountSession".
+  refType      String?
+  refId        String?
+  note         String
+  /// Set on a reversing row, pointing at the row it cancels.
+  reversesId   String?
+  createdAt    DateTime         @default(now())
+  createdById  String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// One row per source document, which is what makes re-posting safe.
+  @@unique([companyId, refType, refId])
+  @@index([companyId, businessDate])
+  @@index([companyId, type])
+}
+
+/**
+ * A physical count of the cash box, against what the book says should be there.
+ * Separate from CashCount, which breaks down one vendor's remittance on one shift. This
+ * is the whole box on a given day. The variance is recorded whether or not it is
+ * written off, because a count that quietly adjusted itself to match the book would
+ * defeat the purpose of counting.
+ */
+model CashCountSession {
+  id            String   @id @default(cuid())
+  companyId     String
+  businessDate  DateTime @db.Date
+  branchId      String?
+  /// What the book said at the moment of counting, kept so the figure cannot drift.
+  expected      Decimal  @db.Decimal(14, 4)
+  counted       Decimal  @db.Decimal(14, 4)
+  /// counted − expected. Negative is short.
+  variance      Decimal  @db.Decimal(14, 4)
+  /// Optional denomination breakdown: [{ denomination, count }].
+  denominations Json     @default("[]")
+  note          String?
+  /// The adjustment posted to make the book agree, when the owner chose to write it off.
+  adjustmentId  String?
+  createdAt     DateTime @default(now())
+  createdById   String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, businessDate])
+}
+
+enum CashMovementType {
+  /// Money the owner puts into the business.
+  CAPITAL
+  /// Money the owner takes out for themselves. Not an expense.
+  OWNER_DRAW
+  /// A shift's cash remittance.
+  SALES
+  /// An approved expense paid in cash.
+  EXPENSE
+  /// A payroll run marked paid.
+  PAYROLL
+  /// Cash paid to a supplier.
+  PURCHASE
+  /// Cash taken to the bank, or drawn from it.
+  BANK_DEPOSIT
+  BANK_WITHDRAWAL
+  /// A counted difference the owner chose to write off.
+  COUNT_ADJUSTMENT
+  OTHER_IN
+  OTHER_OUT
 }
 
 /**

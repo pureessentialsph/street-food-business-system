@@ -6,6 +6,7 @@ import { dec, sum } from "@/lib/money";
 import { aggregatePay } from "@/lib/engines/compensation";
 import { computeShiftCompensation, payablePeriod } from "@/lib/payroll-service";
 import { decimalString } from "@/lib/validation/masterdata";
+import { postFromDocument } from "@/lib/cash-service";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 const toDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -181,8 +182,25 @@ export async function advancePayrollRun(
       });
     }
 
+    /**
+     * Wages are paid in cash here, so marking a run paid takes that money out of the
+     * box. Posted from the run itself, so it is one line however often this is retried.
+     */
+    if (to === "PAID") {
+      const items = await ctx.db.payrollItem.findMany({ where: { payrollRunId: runId } });
+      const total = items.reduce((running, item) => running.plus(item.netPay.toString()), dec(0));
+      await postFromDocument(ctx.db, ctx.db.$companyId, {
+        type: "PAYROLL",
+        refType: "PayrollRun",
+        refId: runId,
+        amount: total.toFixed(4),
+        businessDate: run.periodEnd,
+        note: `Wages for ${run.reference}, ${items.length} ${items.length === 1 ? "person" : "people"}`,
+      }, ctx.user.id);
+    }
+
     await audit(ctx, "UPDATE", "PayrollRun", runId, run, after);
-    refresh("/payroll", `/payroll/${runId}`);
+    refresh("/payroll", `/payroll/${runId}`, "/cash");
     return { ok: true, message: `${run.reference} is now ${to.toLowerCase()}.` };
   } catch (error) {
     return toActionError(error);

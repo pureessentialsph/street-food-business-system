@@ -23,6 +23,7 @@ const CONTENTS = [
   ["expenses", "Expenses"],
   ["payroll", "Paying people"],
   ["procurement", "Buying"],
+  ["cash", "Cash on hand and capital"],
   ["reports", "Knowing if you made money"],
   ["people", "Staff records"],
   ["roles", "Who can do what"],
@@ -608,8 +609,79 @@ export default async function GuidePage() {
           </GuideSection>
 
           <GuideSection
+            id="cash"
+            title="10 · Cash on hand and capital"
+            lead="Where the money actually is, as opposed to what you sold."
+          >
+            <p className="text-sm text-stone-600">
+              <Link href="/cash" className="text-brand-700 hover:underline">/cash</Link> is the
+              cash book: one running balance for the money the business holds in notes and coins.
+              Sales are not the same thing as cash — a day can be profitable and still leave the
+              box empty, because wages and supplies went out of it.
+            </p>
+
+            <Steps>
+              <Step n={1} title="Record the capital you put in" where="/cash">
+                <p>
+                  The money you funded the business with. Record it once, dated when you put it
+                  in, and the balance starts from the right place. Every later infusion is
+                  recorded the same way — there is no limit, and each one stays on the record
+                  with its own date and note.
+                </p>
+              </Step>
+              <Step n={2} title="Trading fills the book by itself">
+                <p>
+                  Three things post themselves and need no keying in: the cash a vendor remits
+                  when a shift is closed, an approved expense that was <strong>paid in
+                  cash</strong>, and a payroll run marked paid. Each is one line tied to the
+                  document it came from, so re-counting a shift corrects the line rather than
+                  adding a second one.
+                </p>
+              </Step>
+              <Step n={3} title="Record what you pay by hand" where="/cash">
+                <p>
+                  A supplier paid in cash, money taken to the bank or drawn out of it, your own
+                  drawings, anything else. A purchase order has its own{" "}
+                  <strong>Record payment</strong> button on the order itself — use that rather
+                  than typing the amount here, so the order and the cash book agree.
+                </p>
+              </Step>
+              <Step n={4} title="Count the box" where="/cash">
+                <p>
+                  Key in the notes and coins you are holding, largest first. The difference
+                  against the book appears as you type, before anything is saved, so a miscount
+                  is caught while the money is still on the table. The count is kept whether it
+                  agrees or not; writing the difference off is a separate, deliberate tick.
+                </p>
+              </Step>
+            </Steps>
+
+            <Note>
+              <strong>Does an expense need to say where the money came from?</strong> No, and it
+              deliberately cannot. An expense says how it was <em>paid</em> — cash, GCash, bank,
+              or on credit — and only cash comes out of the box. Where the cash in the box came
+              from is already answered by the book: capital you put in, plus sales remitted.
+              Paying for something and funding the business are two different events, and
+              recording them as one would hide whichever of the two you cared about.
+            </Note>
+
+            <Note>
+              So if you pay ₱5,000 for supplies out of your own pocket when the box only holds
+              ₱2,000, that is <em>two</em> entries, not one: a ₱3,000 capital infusion, then the
+              ₱5,000 purchase. Record only the purchase and the balance goes negative — which is
+              the system telling you money went in that nobody wrote down.
+            </Note>
+
+            <Warn>
+              GCash sales are not cash. A shift&rsquo;s digital takings are money owed to the
+              business rather than notes in a box, so they are counted in sales and in the P&amp;L
+              but never in this balance.
+            </Warn>
+          </GuideSection>
+
+          <GuideSection
             id="reports"
-            title="10 · Knowing if you made money"
+            title="11 · Knowing if you made money"
           >
             <p className="text-sm text-stone-600">
               <Link href="/dashboard" className="text-brand-700 hover:underline">/dashboard</Link>{" "}
@@ -645,7 +717,7 @@ export default async function GuidePage() {
 
           <GuideSection
             id="people"
-            title="11 · Staff records"
+            title="12 · Staff records"
           >
             <p className="text-sm text-stone-600">
               Each employee has a 201 file — contracts, IDs, clearances, with expiry dates. The
@@ -660,7 +732,7 @@ export default async function GuidePage() {
 
           <GuideSection
             id="roles"
-            title="12 · Who can do what"
+            title="13 · Who can do what"
             lead="Roles exist so that the person who records something is not the person who approves it."
           >
             <Table
@@ -683,7 +755,7 @@ export default async function GuidePage() {
 
           <GuideSection
             id="logins"
-            title="13 · Logins and access"
+            title="14 · Logins and access"
             lead="Owners and admins manage who can sign in, on /users."
           >
             <Steps>
@@ -732,7 +804,7 @@ export default async function GuidePage() {
 
           <GuideSection
             id="account"
-            title="14 · Your own login"
+            title="15 · Your own login"
           >
             <p className="text-sm text-stone-600">
               Click your name at the bottom of the sidebar to open{" "}
@@ -757,7 +829,7 @@ export default async function GuidePage() {
 
           <GuideSection
             id="problems"
-            title="15 · When something looks wrong"
+            title="16 · When something looks wrong"
           >
             <Table
               head={["What you see", "What it means", "What to do"]}

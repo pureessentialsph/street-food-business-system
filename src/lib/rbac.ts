@@ -31,6 +31,7 @@ export type Permission =
   | "payroll.approve"
   | "expense.write"
   | "expense.approve"
+  | "cash.manage"
   | "procurement.approve"
   | "employee.read"
   | "employee.documents"
@@ -42,13 +43,13 @@ const PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   OWNER: new Set<Permission>([
     "company.manage", "user.manage", "masterdata.write", "masterdata.delete", "costing.write", "inventory.write",
     "shift.open", "shift.close", "shift.approve", "payroll.run", "payroll.approve",
-    "expense.write", "expense.approve", "procurement.approve", "employee.read",
+    "expense.write", "expense.approve", "cash.manage", "procurement.approve", "employee.read",
     "employee.documents", "pay.readAll", "cost.read", "reports.read",
   ]),
   ADMIN: new Set<Permission>([
     "user.manage", "masterdata.write", "masterdata.delete", "costing.write", "inventory.write", "shift.open", "shift.close",
     "shift.approve", "payroll.run", "payroll.approve", "expense.write", "expense.approve",
-    "procurement.approve", "employee.read", "employee.documents", "pay.readAll",
+    "cash.manage", "procurement.approve", "employee.read", "employee.documents", "pay.readAll",
     "cost.read", "reports.read",
   ]),
   AREA_MANAGER: new Set<Permission>([
@@ -200,6 +201,7 @@ export const NAV: NavItem[] = [
   { href: "/employees", label: "Employees", permission: "employee.read" },
   { href: "/payroll", label: "Payroll", permission: "payroll.run" },
   { href: "/expenses", label: "Expenses", permission: "expense.write" },
+  { href: "/cash", label: "Cash", permission: "cash.manage" },
   { href: "/procurement", label: "Procurement", permission: "procurement.approve" },
   { href: "/reports", label: "P&L", permission: "reports.read" },
   { href: "/users", label: "Logins", permission: "user.manage" },

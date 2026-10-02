@@ -12,6 +12,7 @@ import { EntityForm } from "@/components/entity-form";
 import { PoLineFields } from "@/components/po-line-fields";
 import { Card, CardBody, CardHeader, CardTitle, EmptyState } from "@/components/ui/card";
 import { Badge } from "@/components/ui/field";
+import { PaymentForm } from "./payment-form";
 
 export default async function PurchaseOrderPage({
   params,
@@ -55,6 +56,11 @@ export default async function PurchaseOrderPage({
         <span className="font-mono text-stone-700">{formatPHP(po.totalAmount)}</span>
         {po.orderedAt ? <span className="text-stone-500">Placed {po.orderedAt.toISOString().slice(0, 10)}</span> : null}
         {po.receivedAt ? <span className="text-stone-500">Received {po.receivedAt.toISOString().slice(0, 10)}</span> : null}
+        {po.paidAt ? (
+          <Badge tone="success">paid {po.paymentMethod?.toLowerCase()}</Badge>
+        ) : (
+          <Badge tone="warning">not paid</Badge>
+        )}
       </div>
 
       <Card>
@@ -120,6 +126,18 @@ export default async function PurchaseOrderPage({
                   }))}
                 />
               </EntityForm>
+            </div>
+          ) : null}
+
+          {canOrder && po.status !== "CANCELLED" && po.lines.length > 0 ? (
+            <div className="mb-4 border-t border-stone-100 pt-4">
+              <p className="mb-2 text-sm font-medium text-stone-900">Payment</p>
+              <PaymentForm
+                poNo={poNo}
+                total={formatPHP(po.totalAmount)}
+                paidAt={po.paidAt ? po.paidAt.toISOString().slice(0, 10) : null}
+                method={po.paymentMethod}
+              />
             </div>
           ) : null}
 

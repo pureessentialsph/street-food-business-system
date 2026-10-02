@@ -8,6 +8,7 @@ import { describeChanges, recomputeForIngredient } from "@/lib/costing-service";
 import { onHand, postLedger, type LedgerEntry } from "@/lib/inventory-service";
 import { generateSuggestions, storeSuggestions } from "@/lib/procurement-service";
 import { assertScope } from "@/lib/rbac";
+import { postFromDocument, unpostDocument } from "@/lib/cash-service";
 import type { ScopedDb } from "@/lib/db";
 import { resolveSupplier } from "@/lib/supplier-resolve";
 import { decimalString } from "@/lib/validation/masterdata";
@@ -361,6 +362,65 @@ export async function receivePurchaseOrder(poNo: string, formData: FormData): Pr
   }
 }
 
+/**
+ * Record that an order has been paid for.
+ *
+ * Separate from receiving it, because they are separate events: a market run pays on
+ * the spot, a supplier on terms is paid weeks later, and a cash book that assumed
+ * delivery meant payment would be wrong in both directions.
+ *
+ * Only a cash payment touches the cash box. GCash and bank are real payments that the
+ * P&L already knows about through the stock they bought; they just do not come out of
+ * the notes and coins this book counts. Nothing here asks where the money came from —
+ * that is what the cash box balance is for, and if it goes short the answer is to
+ * record the capital that was actually put in, not to tag it onto a purchase.
+ */
+export async function markPurchaseOrderPaid(
+  poNo: string,
+  method: "CASH" | "GCASH" | "BANK" | "CREDIT",
+): Promise<ActionResult> {
+  try {
+    const ctx = await withPermission("procurement.approve");
+    const po = await ctx.db.purchaseOrder.findUnique({ where: { poNo } });
+    if (!po) return { ok: false, error: "That order no longer exists." };
+    if (po.status === "CANCELLED") return { ok: false, error: "A cancelled order cannot be paid." };
+    if (dec(po.totalAmount).isZero()) {
+      return { ok: false, error: "This order has no value yet, so there is nothing to pay." };
+    }
+
+    const after = await ctx.db.purchaseOrder.update({
+      where: { poNo },
+      data: { paymentMethod: method, paidAt: new Date(), paidById: ctx.user.id },
+    });
+
+    if (method === "CASH") {
+      await postFromDocument(ctx.db, ctx.db.$companyId, {
+        type: "PURCHASE",
+        refType: "PurchaseOrder",
+        refId: poNo,
+        amount: dec(po.totalAmount).toFixed(4),
+        businessDate: toDateColumn(
+          (po.receivedAt ?? po.orderedAt ?? new Date()).toISOString().slice(0, 10),
+        ),
+        note: `${po.reference} paid in cash`,
+      }, ctx.user.id);
+    } else {
+      await unpostDocument(ctx.db, ctx.db.$companyId, "PurchaseOrder", poNo);
+    }
+
+    await audit(ctx, "UPDATE", "PurchaseOrder", poNo, po, after);
+    refresh("/procurement", `/procurement/${poNo}`, "/cash");
+    return {
+      ok: true,
+      message:
+        `${po.reference} marked paid by ${method.toLowerCase()}` +
+        (method === "CASH" ? `, ${formatPHP(po.totalAmount)} out of the cash box.` : "."),
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
 export async function cancelPurchaseOrder(poNo: string): Promise<ActionResult> {
   try {
     const ctx = await withPermission("procurement.approve");
@@ -370,8 +430,9 @@ export async function cancelPurchaseOrder(poNo: string): Promise<ActionResult> {
       return { ok: false, error: "Stock has already been received against this order." };
     }
     const after = await ctx.db.purchaseOrder.update({ where: { poNo }, data: { status: "CANCELLED" } });
+    await unpostDocument(ctx.db, ctx.db.$companyId, "PurchaseOrder", poNo);
     await audit(ctx, "UPDATE", "PurchaseOrder", poNo, po, after);
-    refresh("/procurement");
+    refresh("/procurement", "/cash");
     return { ok: true, message: `${po.reference} cancelled.` };
   } catch (error) {
     return toActionError(error);

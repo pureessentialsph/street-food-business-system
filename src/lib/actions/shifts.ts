@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { businessDateFor, toDateColumn } from "@/lib/businessDate";
+import { businessDateFor, formatBusinessDate, fromDateColumn, toDateColumn } from "@/lib/businessDate";
 import { dec } from "@/lib/money";
 import type { ScopedDb } from "@/lib/db";
 import { costAsOf } from "@/lib/costing-service";
@@ -10,6 +10,7 @@ import { reconcileShift, validateClosing, type ReconciliationLineInput } from "@
 import { describeRoster, planRoster } from "@/lib/engines/vendor-roster";
 import { assertCanApproveShift, assertScope, can } from "@/lib/rbac";
 import { computeShiftCompensation } from "@/lib/payroll-service";
+import { postFromDocument, unpostDocument } from "@/lib/cash-service";
 import { audit, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 /**
@@ -696,9 +697,24 @@ export async function closeShift(shiftId: string, formData: FormData): Promise<A
     // Pay falls out of the same count — nobody keys it in separately (spec §8).
     const pay = await computeShiftCompensation(ctx.db, shiftId);
 
+    /**
+     * The cash the vendor actually handed over goes into the cash book. Digital sales
+     * do not: they are money owed to the business, not money in the box. Re-counting a
+     * shift updates this one row rather than adding a second.
+     */
+    await postFromDocument(ctx.db, ctx.db.$companyId, {
+      type: "SALES",
+      refType: "CartShift",
+      refId: shiftId,
+      amount: dec(form.cashRemitted || "0").toFixed(4),
+      businessDate: shift.businessDate,
+      note: `Cash remitted from the ${formatBusinessDate(fromDateColumn(shift.businessDate))} shift`,
+      branchId: null,
+    }, ctx.user.id);
+
     await audit(ctx, "UPDATE", "CartShift", shiftId, shift, { status: result.isDisputed ? "DISPUTED" : "CLOSED" });
 
-    refresh("/shifts", `/shifts/${shiftId}`, "/inventory", "/dashboard");
+    refresh("/shifts", `/shifts/${shiftId}`, "/inventory", "/dashboard", "/cash");
 
     const variance = result.cashVariance;
     return {
@@ -816,9 +832,10 @@ export async function cancelShift(shiftId: string): Promise<ActionResult> {
     }
 
     await audit(ctx, "DELETE", "CartShift", shiftId, shift, null);
+    await unpostDocument(ctx.db, ctx.db.$companyId, "CartShift", shiftId);
     await ctx.db.cartShift.delete({ where: { id: shiftId } });
 
-    refresh("/shifts", "/dashboard");
+    refresh("/shifts", "/dashboard", "/cash");
     return { ok: true, message: "Shift cancelled — the cart is back to not opened." };
   } catch (error) {
     return toActionError(error);

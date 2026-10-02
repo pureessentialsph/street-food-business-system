@@ -4,6 +4,7 @@ import { z } from "zod";
 import { dec } from "@/lib/money";
 import { decimalString } from "@/lib/validation/masterdata";
 import { assertCanApproveExpense, assertScope } from "@/lib/rbac";
+import { postFromDocument, unpostDocument } from "@/lib/cash-service";
 import { audit, parseForm, refresh, toActionError, withPermission, type ActionResult } from "./helpers";
 
 const toDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -135,8 +136,26 @@ export async function setExpenseStatus(
         approvedById: status === "APPROVED" ? ctx.user.id : null,
       },
     });
+    /**
+     * Only an approved CASH expense leaves the box. One paid by GCash, bank or on
+     * credit affects the P&L but not the cash on hand, and un-approving takes the line
+     * back out — the cash book follows the document rather than keeping its own view.
+     */
+    if (after.status === "APPROVED" && after.paymentMethod === "CASH") {
+      await postFromDocument(ctx.db, ctx.db.$companyId, {
+        type: "EXPENSE",
+        refType: "Expense",
+        refId: id,
+        amount: after.amount.toFixed(4),
+        businessDate: after.businessDate,
+        note: after.description,
+      }, ctx.user.id);
+    } else {
+      await unpostDocument(ctx.db, ctx.db.$companyId, "Expense", id);
+    }
+
     await audit(ctx, "UPDATE", "Expense", id, before, after);
-    refresh("/expenses", "/reports");
+    refresh("/expenses", "/reports", "/cash");
     return { ok: true, message: `Expense ${status.toLowerCase()}.` };
   } catch (error) {
     return toActionError(error);
@@ -152,8 +171,9 @@ export async function deleteExpense(id: string): Promise<ActionResult> {
       return { ok: false, error: "An approved expense stays on the record. Reject it instead." };
     }
     await audit(ctx, "DELETE", "Expense", id, before, null);
+    await unpostDocument(ctx.db, ctx.db.$companyId, "Expense", id);
     await ctx.db.expense.delete({ where: { id } });
-    refresh("/expenses", "/reports");
+    refresh("/expenses", "/reports", "/cash");
     return { ok: true, message: "Expense removed." };
   } catch (error) {
     return toActionError(error);
