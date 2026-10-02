@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { scopedDb } from "@/lib/db";
 import { can, seesAllBranches, ROLE_LABELS } from "@/lib/rbac";
 import { buildDashboard } from "@/lib/dashboard-service";
+import { cashPosition } from "@/lib/cash-service";
 import { formatBusinessDate } from "@/lib/businessDate";
 import { PRESET_LABELS } from "@/lib/engines/date-range";
 import { dec, formatPHP } from "@/lib/money";
@@ -30,6 +31,31 @@ export default async function DashboardPage({
     canSeeDocuments: can(user, "employee.documents"),
     range: { from, to, preset },
   });
+
+  /**
+   * Cash on hand is a right-now figure, not a figure over a period, so it sits with
+   * today and does not move when the range above it changes. It is restricted the same
+   * way the cash book itself is — a supervisor runs a cart, not the company's money.
+   */
+  const cash = can(user, "cash.manage") ? await cashPosition(db) : null;
+
+  /**
+   * A cash box that owes money is not a rounding error — it means cash went out that
+   * had no recorded source, which is almost always capital the owner put in and never
+   * wrote down. Raised here rather than in buildDashboard because the figure is
+   * restricted and the alert list is not.
+   */
+  const cashAlerts =
+    cash && dec(cash.balance).isNegative()
+      ? [{
+          tone: "danger" as const,
+          title: `The cash book is ${formatPHP(dec(cash.balance).abs())} below zero`,
+          detail:
+            "More cash has gone out than the book knows came in. Usually that is capital you " +
+            "put in without recording it.",
+          href: "/cash",
+        }]
+      : [];
   const { today, period, resolved, trend, trendGranularity, carts, bestProducts, slowProducts, alerts } = dashboard;
 
   const periodLabel =
@@ -49,9 +75,9 @@ export default async function DashboardPage({
         subtitle={`${company?.name} · business date ${formatBusinessDate(today.businessDate)}`}
       />
 
-      {alerts.length > 0 ? (
+      {[...cashAlerts, ...alerts].length > 0 ? (
         <div className="space-y-2">
-          {alerts.map((alert) => (
+          {[...cashAlerts, ...alerts].map((alert) => (
             <div
               key={alert.title}
               className={`rounded-md px-4 py-3 text-sm ${
@@ -171,7 +197,47 @@ export default async function DashboardPage({
           note={today.shiftsDisputed ? "payroll blocked until resolved" : "none"}
           tone={today.shiftsDisputed ? "bad" : "good"}
         />
-        <StatTile label="Average day" value={formatPHP(today.avgDailySales)} note="last 14 trading days, whatever the range above" />
+        {/*
+          Replaces the 14-day average that used to sit here: the period block above now
+          shows an average over a window the owner chooses, which made this one a second
+          answer to the same question. Cash on hand is the figure that had no home.
+        */}
+        {cash ? (
+          <Link href="/cash" className="block transition hover:opacity-80">
+            <StatTile
+              label="Cash on hand"
+              value={formatPHP(cash.balance)}
+              /**
+               * A written-off difference is settled, so saying it is still "out" would
+               * read as an open problem the owner has already dealt with.
+               */
+              note={
+                cash.lastCount
+                  ? `counted ${formatBusinessDate(cash.lastCount.businessDate)}${
+                      dec(cash.lastCount.variance).isZero()
+                        ? ", matched the book"
+                        : cash.lastCount.writtenOff
+                          ? `, ${formatPHP(cash.lastCount.variance)} written off`
+                          : `, ${formatPHP(cash.lastCount.variance)} unexplained`
+                    }`
+                  : "never counted — count the box"
+              }
+              tone={
+                dec(cash.balance).isNegative()
+                  ? "bad"
+                  : cash.lastCount && !dec(cash.lastCount.variance).isZero() && !cash.lastCount.writtenOff
+                    ? "warning"
+                    : "neutral"
+              }
+            />
+          </Link>
+        ) : (
+          <StatTile
+            label="Average day"
+            value={formatPHP(today.avgDailySales)}
+            note="last 14 trading days, whatever the range above"
+          />
+        )}
       </div>
 
       {!hasTraded ? (

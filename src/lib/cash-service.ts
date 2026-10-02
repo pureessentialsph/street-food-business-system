@@ -90,7 +90,13 @@ export type CashPosition = {
   balance: string;
   summary: CashSummary;
   /** Null until the box has been counted at least once. */
-  lastCount: { businessDate: string; counted: string; variance: string } | null;
+  lastCount: {
+    businessDate: string;
+    counted: string;
+    variance: string;
+    /** Whether the difference was written off, which settles it. */
+    writtenOff: boolean;
+  } | null;
 };
 
 export async function cashPosition(
@@ -118,6 +124,7 @@ export async function cashPosition(
           businessDate: lastCount.businessDate.toISOString().slice(0, 10),
           counted: lastCount.counted.toFixed(2),
           variance: lastCount.variance.toFixed(2),
+          writtenOff: Boolean(lastCount.adjustmentId),
         }
       : null,
   };

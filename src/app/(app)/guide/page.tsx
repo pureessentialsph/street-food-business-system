@@ -619,6 +619,14 @@ export default async function GuidePage() {
               Sales are not the same thing as cash — a day can be profitable and still leave the
               box empty, because wages and supplies went out of it.
             </p>
+            <p className="text-sm text-stone-600">
+              The balance also sits on the{" "}
+              <Link href="/dashboard" className="text-brand-700 hover:underline">dashboard</Link>,
+              beside the day&rsquo;s figures, with the date you last counted the box. It is a
+              right-now figure, so it does not move when you change the date range up there. If
+              it ever shows below zero the dashboard says so at the top: more cash has gone out
+              than the book knows came in, which is nearly always capital put in and not recorded.
+            </p>
 
             <Steps>
               <Step n={1} title="Record the capital you put in" where="/cash">
