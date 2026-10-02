@@ -4,8 +4,10 @@ import { scopedDb } from "@/lib/db";
 import { can, seesAllBranches, ROLE_LABELS } from "@/lib/rbac";
 import { buildDashboard } from "@/lib/dashboard-service";
 import { formatBusinessDate } from "@/lib/businessDate";
+import { PRESET_LABELS } from "@/lib/engines/date-range";
 import { dec, formatPHP } from "@/lib/money";
 import { RankBars, StatTile, TrendBars } from "@/components/charts";
+import { DateRangePicker } from "@/components/date-range-picker";
 import { Card, CardBody, CardHeader, CardTitle, EmptyState } from "@/components/ui/card";
 import { PageHeader } from "@/components/data-table";
 
@@ -13,16 +15,27 @@ import { PageHeader } from "@/components/data-table";
  * The page the owner opens in the morning (spec §7): how yesterday went, which carts
  * did it, and what needs attention — without touching a spreadsheet.
  */
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string; preset?: string }>;
+}) {
   const user = await requireUser();
   const db = scopedDb(user.companyId);
+  const { from, to, preset } = await searchParams;
 
   const company = await db.company.findFirst({ where: { id: user.companyId } });
   const dashboard = await buildDashboard(db, {
     branchIds: seesAllBranches(user) ? undefined : user.scopeBranchIds,
     canSeeDocuments: can(user, "employee.documents"),
+    range: { from, to, preset },
   });
-  const { today, trend, carts, bestProducts, slowProducts, alerts } = dashboard;
+  const { today, period, resolved, trend, trendGranularity, carts, bestProducts, slowProducts, alerts } = dashboard;
+
+  const periodLabel =
+    resolved.preset === "custom"
+      ? `${formatBusinessDate(period.from)} – ${formatBusinessDate(period.to)}`
+      : PRESET_LABELS[resolved.preset];
 
   const hasTraded = dec(today.netSales).greaterThan(0) || trend.some((t) => dec(t.netSales).greaterThan(0));
   const targetTone = today.targetPct
@@ -54,6 +67,65 @@ export default async function DashboardPage() {
           ))}
         </div>
       ) : null}
+
+      <div className="space-y-3 border-t border-stone-200 pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-medium text-stone-900">{periodLabel}</h2>
+          <DateRangePicker
+            basePath="/dashboard"
+            from={period.from}
+            to={period.to}
+            preset={resolved.preset}
+            max={today.businessDate}
+          />
+        </div>
+
+        {resolved.note ? (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">{resolved.note}</p>
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile
+            label="Gross sales"
+            value={formatPHP(period.grossSales)}
+            note={
+              dec(period.discountTotal).greaterThan(0)
+                ? `less ${formatPHP(period.discountTotal)} discounts`
+                : "before discounts"
+            }
+          />
+          <StatTile
+            label="Net sales"
+            value={formatPHP(period.netSales)}
+            note={`${period.daysTraded} of ${period.days} day${period.days === 1 ? "" : "s"} traded`}
+          />
+          <StatTile
+            label="Gross profit"
+            value={formatPHP(period.grossProfit)}
+            note={period.marginPct ? `${period.marginPct}% margin` : "no sales in this range"}
+          />
+          <StatTile
+            label="Average trading day"
+            value={formatPHP(period.avgDailySales)}
+            note={
+              period.bestDay
+                ? `best ${formatBusinessDate(period.bestDay.businessDate)} at ${formatPHP(period.bestDay.netSales)}`
+                : "nothing traded in this range"
+            }
+          />
+        </div>
+
+        <p className="text-xs text-stone-500">
+          {period.shifts} cart day{period.shifts === 1 ? "" : "s"} counted ·{" "}
+          {period.unitsSold} pcs ({period.sticksSold} sticks) sold · cash variance{" "}
+          {formatPHP(period.cashVariance)}. Only closed and approved shifts are counted;
+          anything still open is in the tiles below.
+        </p>
+      </div>
+
+      <h2 className="border-t border-stone-200 pt-4 text-sm font-medium text-stone-900">
+        Today — {formatBusinessDate(today.businessDate)}
+      </h2>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile
@@ -99,7 +171,7 @@ export default async function DashboardPage() {
           note={today.shiftsDisputed ? "payroll blocked until resolved" : "none"}
           tone={today.shiftsDisputed ? "bad" : "good"}
         />
-        <StatTile label="Average day" value={formatPHP(today.avgDailySales)} note="over the last 14 trading days" />
+        <StatTile label="Average day" value={formatPHP(today.avgDailySales)} note="last 14 trading days, whatever the range above" />
       </div>
 
       {!hasTraded ? (
@@ -110,7 +182,11 @@ export default async function DashboardPage() {
       ) : null}
 
       <Card>
-        <CardHeader><CardTitle>Net sales, last 14 days</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>
+            Net sales {trendGranularity === "week" ? "by week" : "by day"}, {periodLabel.toLowerCase()}
+          </CardTitle>
+        </CardHeader>
         <CardBody>
           <TrendBars
             points={trend.map((point) => ({
@@ -118,7 +194,7 @@ export default async function DashboardPage() {
               value: Number(point.netSales),
               sublabel: `${point.shifts} cart${point.shifts === 1 ? "" : "s"}`,
             }))}
-            reference={today.target ? Number(today.target) : undefined}
+            reference={trendGranularity === "day" && today.target ? Number(today.target) : undefined}
             referenceLabel="daily target"
           />
         </CardBody>
@@ -150,7 +226,7 @@ export default async function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Best sellers, last 14 days</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Best sellers, {periodLabel.toLowerCase()}</CardTitle></CardHeader>
           <CardBody>
             <RankBars
               rows={bestProducts.map((product) => ({

@@ -617,6 +617,22 @@ export default async function GuidePage() {
               what is disputed, what needs attention.
             </p>
             <p className="text-sm text-stone-600">
+              At the top you choose the period — today, yesterday, the last 7, 14 or 30 days, this
+              month, last month, or any two dates you type. That window drives{" "}
+              <strong>gross sales</strong> (the till total before discounts), net sales, gross
+              profit and margin, the average trading day, and the sales chart beneath. Over long
+              windows the chart switches to one bar per week. The chosen range is in the web
+              address, so a period you want to show someone can be bookmarked or sent as a link.
+            </p>
+            <Note>
+              Gross sales is before discounts, net sales is after. With no discounts given the two
+              are the same figure — the difference appears the day you start discounting.
+              &ldquo;Days traded&rdquo; counts only days a cart actually closed, so a rest day does
+              not drag the average down. The <strong>Today</strong> tiles below the period never
+              move when you change the range, and neither do the alerts at the top: those are
+              about right now, whatever window you are looking at.
+            </Note>
+            <p className="text-sm text-stone-600">
               <Link href="/reports" className="text-brand-700 hover:underline">/reports</Link> is
               the profit and loss, and it drills from the whole company down to a single shift:
               company → branch → cart → day. Every figure can be traced to the movements behind it.

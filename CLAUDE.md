@@ -52,8 +52,12 @@ performance fix — leave the guide alone and say so in the commit.
 - `pnpm exec tsc --noEmit` before committing.
 - Migrations: `pnpm db:migrate` locally, `prisma migrate deploy` against production with
   `.env.production.local` loaded. That file is gitignored and must stay untracked.
-- Deploys are `vercel deploy --prod`; the project is pinned to `sin1` to sit beside the
-  Supabase database in `ap-southeast-1`.
+- **Pushing to `main` deploys.** The GitHub integration builds every push to production,
+  so there is normally nothing to run by hand. Confirm it by the commit in the build log
+  (`vercel inspect <deployment> --logs | grep Commit`) and by the alias resolving to that
+  deployment — not by a CLI command exiting 0, which it does while the build fails.
+  The CLI is `npx --no-install vercel`: it is not on `PATH` and not a project dependency.
+- The project is pinned to `sin1` to sit beside the Supabase database in `ap-southeast-1`.
 
 ## Verification
 

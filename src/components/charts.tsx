@@ -52,8 +52,13 @@ export function TrendBars({
   const referenceFits = reference !== undefined && reference > 0 && reference <= dataMax * 1.4;
   const max = referenceFits ? Math.max(dataMax, reference) : dataMax;
   const width = 100;
-  const gap = 2; // a 2px surface gap between adjacent bars
-  const barWidth = Math.max((width - gap * (points.length - 1)) / points.length, 1);
+  /**
+   * A 2px surface gap between adjacent bars — but never at the cost of the chart fitting
+   * its own viewBox. Past roughly 34 bars a fixed gap plus a minimum bar width adds up to
+   * more than the width available, and the last bars were drawn off the right edge.
+   */
+  const gap = Math.min(2, (width * 0.4) / Math.max(points.length - 1, 1));
+  const barWidth = (width - gap * (points.length - 1)) / points.length;
   const plotHeight = height - 22; // leave room for the x labels
 
   const y = (value: number) => plotHeight - (value / max) * plotHeight;
@@ -65,7 +70,7 @@ export function TrendBars({
         preserveAspectRatio="none"
         className="h-40 w-full"
         role="img"
-        aria-label={`Daily net sales for the last ${points.length} days`}
+        aria-label={`Net sales across ${points.length} ${points.length === 1 ? "period" : "periods"}`}
       >
         {/* recessive gridlines at quarters */}
         {[0.25, 0.5, 0.75, 1].map((fraction) => (
